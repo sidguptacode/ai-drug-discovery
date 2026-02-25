@@ -1,0 +1,72 @@
+# =============================================================================
+# config.yaml — Dataset-specific parameters for ST LR pipeline
+# Change this file to run the same pipeline on any spatial transcriptomics dataset.
+# =============================================================================
+
+# ── Dataset identity ───────────────────────────────────────────────────────────
+dataset_name: "kordowski_2025_dipg"
+disease:      "DIPG"
+species:      "human"   # used by stLearn LR database loader
+
+# ── Paths ──────────────────────────────────────────────────────────────────────
+data_dir: "data"
+out_dir:  "outputs"
+
+# ── Samples ───────────────────────────────────────────────────────────────────
+samples:
+  - "VLP45"
+  - "VLP49_B1"
+  - "VLP65"
+  - "VLP70_A2"
+  - "VLP70_D1"
+  - "VLP70_D2"
+  - "VLP73_A"
+  - "VLP73_D"
+  - "VLP74_A"
+  - "VLP74_D"
+
+# ── Step 1: QC ────────────────────────────────────────────────────────────────
+qc:
+  ncount_min:   2500      # minimum total UMI counts per spot
+  ncount_max:   75000     # maximum total UMI counts per spot
+  mt_cutoff:    null      # set to e.g. 20 to hard-filter on % mitochondrial; null = no filter
+
+# ── Step 2: Integration ───────────────────────────────────────────────────────
+integration:
+  n_features:   3000      # variable features for SCTransform + anchor selection
+  n_pcs:        50        # PCs computed
+  n_dims:       30        # PCs used for neighbour graph, UMAP
+
+# ── Step 3: Clustering ────────────────────────────────────────────────────────
+clustering:
+  resolutions:        [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  chosen_resolution:  0.3   # set after inspecting Clustree output
+
+# ── Step 4: Annotation ────────────────────────────────────────────────────────
+annotation:
+  n_marker_genes:    50     # top N marker genes passed to EnrichR per cluster
+  min_pct:           0.1    # FindAllMarkers: min fraction of cells expressing gene
+  logfc_threshold:   0.25   # FindAllMarkers: minimum log2 fold-change
+  enrichr_dbs:
+    - "CellMarker_2024"
+    - "PanglaoDB_Augmented_2021"
+    - "Human_Gene_Atlas"
+  primary_db: "CellMarker_2024"   # database used to assign the label
+
+# ── Step 7: Preprocessing (Python) ───────────────────────────────────────────
+preprocessing:
+  min_genes:           3       # minimum genes per spot (scanpy filter_cells)
+  min_cells:           100     # minimum cells expressing a gene (scanpy filter_genes)
+  normalize_target:    10000   # library size normalization target sum
+
+# ── Step 8: LR scoring ────────────────────────────────────────────────────────
+lr_scoring:
+  databases:    ["cellphonedb"]   # LR databases to load via stLearn
+  n_pairs:      1000              # permutation pairs for significance testing
+  min_spots:    3                 # minimum spots a LR pair must be expressed in
+  n_neighbors:  6                 # spatial neighbourhood size
+
+# ── Step 9: CCI ───────────────────────────────────────────────────────────────
+cci:
+  min_spots:            3     # minimum spots for CCI testing
+  significance_cutoff:  0.05  # p-value threshold for retaining interactions
