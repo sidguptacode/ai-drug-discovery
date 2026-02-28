@@ -6,11 +6,11 @@
 # ── Dataset identity ───────────────────────────────────────────────────────────
 dataset_name: "kordowski_2025_dipg"
 disease:      "DIPG"
-species:      "human"   # used by stLearn LR database loader
+species:      "human"   # used by `stLearn LR database loader
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-data_dir: "data"
-out_dir:  "outputs"
+data_dir: "/scratch/baderlab/sgupta/aidrugdiscovery_st_analysis/data"
+out_dir:  "/scratch/baderlab/sgupta/ai-drug-discovery/outputs"
 
 # ── Samples ───────────────────────────────────────────────────────────────────
 samples:
@@ -39,7 +39,7 @@ integration:
 
 # ── Step 3: Clustering ────────────────────────────────────────────────────────
 clustering:
-  resolutions:        [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  resolutions:        [0.3]
   chosen_resolution:  0.3   # set after inspecting Clustree output
 
 # ── Step 4: Annotation ────────────────────────────────────────────────────────

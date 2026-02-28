@@ -31,7 +31,7 @@ except ImportError:
 sc.settings.verbosity = 1
 
 # ── Load config ────────────────────────────────────────────────────────────────
-with open("config.yaml") as f:
+with open("config.yml") as f:
     cfg = yaml.safe_load(f)
 
 DATASET     = cfg["dataset_name"]
@@ -89,7 +89,8 @@ def load_sample(sample_name: str, meta_df: pd.DataFrame) -> sc.AnnData:
     coords = coords[coords["in_tissue"] == 1].set_index("barcode")
     shared = adata.obs_names.intersection(coords.index)
     adata  = adata[shared].copy()
-    adata.obsm["spatial"] = coords.loc[shared, ["pxl_col","pxl_row"]].values.astype(float)
+    print(coords.columns)
+    adata.obsm["spatial"] = coords.loc[shared, ["pxl_col_in_fullres","pxl_row_in_fullres"]].values.astype(float)
 
     with open(sf_path) as f:
         adata.uns["spatial"] = {sample_name: {"scalefactors": json.load(f), "images": {}}}
