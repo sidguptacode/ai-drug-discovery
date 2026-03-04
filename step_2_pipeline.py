@@ -31,7 +31,7 @@ except ImportError:
 sc.settings.verbosity = 1
 
 # ── Load config ────────────────────────────────────────────────────────────────
-with open("config.yml") as f:
+with open("/scratch/baderlab/sgupta/ai-drug-discovery/config_step_3_and_beyond_v2.yml") as f:
     cfg = yaml.safe_load(f)
 
 DATASET     = cfg["dataset_name"]
@@ -89,11 +89,23 @@ def load_sample(sample_name: str, meta_df: pd.DataFrame) -> sc.AnnData:
     coords = coords[coords["in_tissue"] == 1].set_index("barcode")
     shared = adata.obs_names.intersection(coords.index)
     adata  = adata[shared].copy()
-    print(coords.columns)
-    adata.obsm["spatial"] = coords.loc[shared, ["pxl_col_in_fullres","pxl_row_in_fullres"]].values.astype(float)
 
     with open(sf_path) as f:
-        adata.uns["spatial"] = {sample_name: {"scalefactors": json.load(f), "images": {}}}
+        scalefactors = json.load(f)
+    hires_sf = scalefactors["tissue_hires_scalef"]
+
+    adata.obsm["spatial"] = coords.loc[shared, ["pxl_col_in_fullres","pxl_row_in_fullres"]].values.astype(float)
+
+    # stlearn's calc_neighbours reads imagerow/imagecol from obs (hires-scaled pixels)
+    # and calc_distance auto-computes the neighbour radius in hires pixel space.
+    adata.obs["imagerow"] = (coords.loc[shared, "pxl_row_in_fullres"].values * hires_sf).astype(float)
+    adata.obs["imagecol"] = (coords.loc[shared, "pxl_col_in_fullres"].values * hires_sf).astype(float)
+
+    adata.uns["spatial"] = {sample_name: {
+        "scalefactors": scalefactors,
+        "use_quality":  "hires",   # tells stlearn which scalef key to use for distance
+        "images":       {},
+    }}
 
     adata.obs["sample"] = sample_name
 
@@ -207,23 +219,13 @@ for samp in SAMPLES:
     print(f"\n  [{samp}] Running LR scoring...")
     adata = adatas[samp].copy()
 
-    try:
-        st.tl.cci.run(adata, lrs,
-                      min_spots   = LR["min_spots"],
-                      distance    = None,
-                      n_pairs     = LR["n_pairs"],
-                      n_cpus      = 1,
-                      use_label   = "cell_type_label",
-                      no_neighbors= LR["n_neighbors"],
-                      verbose     = False)
-    except TypeError:
-        st.tl.cci.run(adata, lrs,
-                      min_spots = LR["min_spots"],
-                      distance  = None,
-                      n_pairs   = LR["n_pairs"],
-                      n_cpus    = 1,
-                      use_label = "cell_type_label",
-                      verbose   = False)
+    st.tl.cci.run(adata, lrs,
+                  min_spots = LR["min_spots"],
+                  distance  = None,   # auto from scalefactors (hires adjacent spots)
+                  n_pairs   = LR["n_pairs"],
+                  n_cpus    = 1,
+                  use_label = "cell_type_label",
+                  verbose   = False)
 
     scores_mat, pvals_mat = extract_lr_matrices(adata, lrs)
     scores_mat.to_csv(os.path.join(OUT_DIR, f"{samp}_lr_scores.csv"))

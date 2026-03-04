@@ -10,24 +10,24 @@ species:      "human"   # used by `stLearn LR database loader
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 data_dir: "/scratch/baderlab/sgupta/aidrugdiscovery_st_analysis/data"
-out_dir:  "/scratch/baderlab/sgupta/ai-drug-discovery/outputs"
+out_dir:  "/scratch/baderlab/sgupta/ai-drug-discovery/outputs_step_3_and_beyond"
 
 # ── Samples ───────────────────────────────────────────────────────────────────
 samples:
-  - "VLP45"
-  - "VLP49_B1"
-  - "VLP65"
-  - "VLP70_A2"
-  - "VLP70_D1"
-  - "VLP70_D2"
-  - "VLP73_A"
-  - "VLP73_D"
-  - "VLP74_A"
-  - "VLP74_D"
+- "MedullaA"
+- "MedullaB"
+- "MedullaC"
+- "Midbrain"
+- "PonsA"
+- "PonsB"
+- "PonsC"
+- "PonsD"
+- "SpinalCordA"
+- "SpinalCordB"
 
 # ── Step 1: QC ────────────────────────────────────────────────────────────────
 qc:
-  ncount_min:   2500      # minimum total UMI counts per spot
+  ncount_min:   1000      # minimum total UMI counts per spot
   ncount_max:   75000     # maximum total UMI counts per spot
   mt_cutoff:    null      # set to e.g. 20 to hard-filter on % mitochondrial; null = no filter
 
@@ -38,9 +38,9 @@ integration:
   n_dims:       30        # PCs used for neighbour graph, UMAP
 
 # ── Step 3: Clustering ────────────────────────────────────────────────────────
-clustering:
-  resolutions:        [0.3]
-  chosen_resolution:  0.3   # set after inspecting Clustree output
+clustering:                                                     
+  resolutions: [0.1, 0.3]
+  chosen_resolution: 0.3
 
 # ── Step 4: Annotation ────────────────────────────────────────────────────────
 annotation:
@@ -51,8 +51,8 @@ annotation:
     - "CellMarker_2024"
     - "PanglaoDB_Augmented_2021"
     - "Human_Gene_Atlas"
-  primary_db: "CellMarker_2024"   # database used to assign the label
-
+  primary_db: "CellMarker_2024"
+  
 # ── Step 7: Preprocessing (Python) ───────────────────────────────────────────
 preprocessing:
   min_genes:           3       # minimum genes per spot (scanpy filter_cells)
