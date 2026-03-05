@@ -8,7 +8,7 @@ Writes: OUT_DIR/step8_<sample>.h5ad      (one per sample, with LR scores in obsm
         OUT_DIR/step8_<sample>_lr_spatial.pdf
 """
 
-import os, sys, warnings
+import os, sys, json, warnings
 warnings.filterwarnings("ignore")
 
 import numpy  as np
@@ -26,9 +26,12 @@ except ImportError:
     print("ERROR: stlearn not installed. Run: pip install stlearn==0.4.12", file=sys.stderr)
     sys.exit(1)
 
-CONFIG_PATH = "/scratch/baderlab/sgupta/ai-drug-discovery/config.yml"
-with open(CONFIG_PATH) as f:
-    cfg = yaml.safe_load(f)
+CONFIG_PATH = os.environ.get("PIPELINE_STEP_CONFIG", "config.yml")
+with open(CONFIG_PATH, encoding="utf-8") as f:
+    if CONFIG_PATH.lower().endswith(".json"):
+        cfg = json.load(f)
+    else:
+        cfg = yaml.safe_load(f)
 
 OUT_DIR = cfg["out_dir"]
 SAMPLES = cfg["samples"]

@@ -6,7 +6,7 @@ Writes: OUT_DIR/step7_<sample>.h5ad      (one per sample)
         OUT_DIR/step7_count_distributions.pdf
 """
 
-import os, sys, warnings
+import os, sys, json, warnings
 warnings.filterwarnings("ignore")
 
 import numpy  as np
@@ -17,9 +17,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-CONFIG_PATH = "/scratch/baderlab/sgupta/ai-drug-discovery/config.yml"
-with open(CONFIG_PATH) as f:
-    cfg = yaml.safe_load(f)
+CONFIG_PATH = os.environ.get("PIPELINE_STEP_CONFIG", "config.yml")
+with open(CONFIG_PATH, encoding="utf-8") as f:
+    if CONFIG_PATH.lower().endswith(".json"):
+        cfg = json.load(f)
+    else:
+        cfg = yaml.safe_load(f)
 
 OUT_DIR = cfg["out_dir"]
 SAMPLES = cfg["samples"]

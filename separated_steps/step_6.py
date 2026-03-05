@@ -16,9 +16,12 @@ import pandas as pd
 import scanpy as sc
 import yaml
 
-CONFIG_PATH = "/scratch/baderlab/sgupta/ai-drug-discovery/config.yml"
-with open(CONFIG_PATH) as f:
-    cfg = yaml.safe_load(f)
+CONFIG_PATH = os.environ.get("PIPELINE_STEP_CONFIG", "config.yml")
+with open(CONFIG_PATH, encoding="utf-8") as f:
+    if CONFIG_PATH.lower().endswith(".json"):
+        cfg = json.load(f)
+    else:
+        cfg = yaml.safe_load(f)
 
 DATA_DIR = cfg["data_dir"]
 OUT_DIR  = cfg["out_dir"]

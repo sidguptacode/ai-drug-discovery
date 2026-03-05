@@ -12,6 +12,7 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(dplyr)
   library(yaml)
+  library(jsonlite)
 })
 
 options(repos = c(CRAN = "https://cloud.r-project.org/"))
@@ -26,7 +27,12 @@ try_library <- function(pkg) {
 
 has_clustree <- try_library("clustree")
 
-cfg     <- yaml::read_yaml("/scratch/baderlab/sgupta/ai-drug-discovery/config.yml")
+cfg_path <- Sys.getenv("PIPELINE_STEP_CONFIG", "config.yml")
+if (grepl("\\.json$", cfg_path, ignore.case = TRUE)) {
+  cfg <- jsonlite::read_json(cfg_path, simplifyVector = FALSE)
+} else {
+  cfg <- yaml::read_yaml(cfg_path)
+}
 OUT_DIR <- cfg$out_dir
 CLUST   <- cfg$clustering
 

@@ -1,0 +1,7 @@
+# Pipeline (steps 6-10) and controller
+numpy
+pandas
+scanpy
+stlearn==0.4.12
+matplotlib
+pyyaml

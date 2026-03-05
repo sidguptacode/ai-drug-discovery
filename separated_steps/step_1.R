@@ -13,14 +13,20 @@ suppressPackageStartupMessages({
   library(patchwork)
   library(dplyr)
   library(yaml)
+  library(jsonlite)
 })
 
 options(repos = c(CRAN = "https://cloud.r-project.org/"))
 
-cfg      <- yaml::read_yaml("/scratch/baderlab/sgupta/ai-drug-discovery/config.yml")
+cfg_path <- Sys.getenv("PIPELINE_STEP_CONFIG", "config.yml")
+if (grepl("\\.json$", cfg_path, ignore.case = TRUE)) {
+  cfg <- jsonlite::read_json(cfg_path, simplifyVector = FALSE)
+} else {
+  cfg <- yaml::read_yaml(cfg_path)
+}
 DATA_DIR <- cfg$data_dir
 OUT_DIR  <- cfg$out_dir
-SAMPLES  <- cfg$samples
+SAMPLES  <- if (is.list(cfg$samples)) unlist(cfg$samples) else cfg$samples
 QC       <- cfg$qc
 
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)

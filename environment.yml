@@ -1,0 +1,15 @@
+# Conda environment for pipeline (Python steps 6-10 and controller)
+name: ai-drug-discovery
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy
+  - pandas
+  - matplotlib
+  - pip
+  - pip:
+    - scanpy
+    - stlearn==0.4.12
+    - pyyaml

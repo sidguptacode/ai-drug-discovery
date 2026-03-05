@@ -6,6 +6,7 @@
 #         OUT_DIR/step4_markers.csv
 #         OUT_DIR/step4_enrichr_<community>_<db>.csv
 #         OUT_DIR/step4_annotation.pdf
+#         OUT_DIR/step4_annotation_scores.csv
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -13,6 +14,7 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(dplyr)
   library(yaml)
+  library(jsonlite)
 })
 
 options(repos = c(CRAN = "https://cloud.r-project.org/"))
@@ -28,7 +30,12 @@ try_library <- function(pkg) {
 
 has_enrichr <- try_library("enrichR")
 
-cfg     <- yaml::read_yaml("/scratch/baderlab/sgupta/ai-drug-discovery/config.yml")
+cfg_path <- Sys.getenv("PIPELINE_STEP_CONFIG", "config.yml")
+if (grepl("\\.json$", cfg_path, ignore.case = TRUE)) {
+  cfg <- jsonlite::read_json(cfg_path, simplifyVector = FALSE)
+} else {
+  cfg <- yaml::read_yaml(cfg_path)
+}
 OUT_DIR <- cfg$out_dir
 ANNOT   <- cfg$annotation
 
@@ -77,8 +84,9 @@ cat(sprintf("  Found %d significant markers across %d communities.\n",
 # Prefers the best-ranked EnrichR term matching a CNS tissue region OR a
 # CNS-specific cell type. Falls back to the overall best hit with a
 # "[non-CNS]" prefix so ambiguous labels are visible in output.
+# Returns list(term = character, adj_pvalue = numeric) for annotation scoring.
 pick_cns_label <- function(db_df) {
-  if (nrow(db_df) == 0) return(NA_character_)
+  if (nrow(db_df) == 0) return(list(term = NA_character_, adj_pvalue = NA_real_))
 
   cns_regions <- paste(c(
     "Brain", "Cortex", "Cerebellum", "Cerebellar", "Hippocampus",
@@ -101,16 +109,19 @@ pick_cns_label <- function(db_df) {
   cns_pattern <- paste(cns_regions, cns_celltypes, sep = "|")
   cns_hits    <- db_df[grepl(cns_pattern, db_df$Term, ignore.case = TRUE), ]
 
-  if (nrow(cns_hits) > 0)
-    return(cns_hits %>% arrange(Adjusted.P.value) %>% slice_head(n = 1) %>% pull(Term))
-
-  best <- db_df %>% arrange(Adjusted.P.value) %>% slice_head(n = 1) %>% pull(Term)
-  paste0("[non-CNS] ", best)
+  if (nrow(cns_hits) > 0) {
+    row <- cns_hits %>% arrange(Adjusted.P.value) %>% slice_head(n = 1)
+    return(list(term = row %>% pull(Term), adj_pvalue = row %>% pull(Adjusted.P.value)))
+  }
+  row <- db_df %>% arrange(Adjusted.P.value) %>% slice_head(n = 1)
+  return(list(term = paste0("[non-CNS] ", row %>% pull(Term)),
+              adj_pvalue = row %>% pull(Adjusted.P.value)))
 }
 
 # ── EnrichR annotation ────────────────────────────────────────────────────────
 all_communities  <- sort(unique(seurat_int$community))
 cell_type_labels <- setNames(all_communities, all_communities)
+annotation_adj_pvalue <- setNames(rep(NA_real_, length(all_communities)), all_communities)
 
 if (has_enrichr) {
   cat(sprintf("  Querying EnrichR: %s\n", paste(ANNOT$enrichr_dbs, collapse=", ")))
@@ -128,8 +139,9 @@ if (has_enrichr) {
         res <- lapply(res, function(df)
           df[!grepl("Mus musculus|\\bMouse\\b|\\bmouse\\b", df$Term), ])
         comm_key <- as.character(comm)
-        top_hit  <- pick_cns_label(res[[ANNOT$primary_db]])
-        cell_type_labels[comm_key] <- if (!is.na(top_hit)) top_hit else comm_key
+        pick     <- pick_cns_label(res[[ANNOT$primary_db]])
+        cell_type_labels[comm_key] <- if (!is.na(pick$term)) pick$term else comm_key
+        if (!is.na(pick$adj_pvalue)) annotation_adj_pvalue[comm_key] <- pick$adj_pvalue
         for (db in names(res))
           write.csv(res[[db]],
                     file.path(OUT_DIR, sprintf("step4_enrichr_%s_%s.csv",
@@ -146,6 +158,36 @@ if (has_enrichr) {
 } else {
   cat("  enrichR not installed - labels default to community IDs.\n")
 }
+
+# ── Per-cluster and aggregate annotation quality (EnrichR adjusted P-value) ───
+cat("\n  Per-cluster annotation P-value (EnrichR adjusted P-value for chosen label):\n")
+for (comm in names(annotation_adj_pvalue)) {
+  pv <- annotation_adj_pvalue[comm]
+  pv_str <- if (is.na(pv)) "NA" else sprintf("%.4g", pv)
+  cat(sprintf("    cluster %-6s  adjusted_pvalue = %s\n", comm, pv_str))
+}
+pv_valid <- annotation_adj_pvalue[!is.na(annotation_adj_pvalue)]
+if (length(pv_valid) > 0) {
+  agg_mean   <- mean(pv_valid)
+  agg_median <- median(pv_valid)
+  agg_frac_sig <- mean(pv_valid < 0.05)
+  cat(sprintf("\n  Aggregate annotation quality:\n"))
+  cat(sprintf("    mean(adjusted_pvalue)     = %.4g  (lower = better)\n", agg_mean))
+  cat(sprintf("    median(adjusted_pvalue)   = %.4g  (lower = better)\n", agg_median))
+  cat(sprintf("    fraction with p < 0.05    = %.2f  (higher = better)\n", agg_frac_sig))
+} else {
+  agg_mean <- agg_median <- NA_real_
+  agg_frac_sig <- NA_real_
+  cat("\n  No EnrichR p-values available - aggregate scores omitted.\n")
+}
+
+annotation_scores_df <- data.frame(
+  cluster = c(names(annotation_adj_pvalue), "aggregate_mean", "aggregate_median", "fraction_p_under_0.05"),
+  label   = c(unname(cell_type_labels[names(annotation_adj_pvalue)]), "", "", ""),
+  adjusted_pvalue = c(unname(annotation_adj_pvalue), if (length(pv_valid) > 0) c(agg_mean, agg_median, agg_frac_sig) else c(NA, NA, NA))
+)
+write.csv(annotation_scores_df, file.path(OUT_DIR, "step4_annotation_scores.csv"), row.names = FALSE)
+cat(sprintf("\n  Saved: step4_annotation_scores.csv\n"))
 
 seurat_int$cell_type_label <- unname(cell_type_labels[seurat_int$community])
 
