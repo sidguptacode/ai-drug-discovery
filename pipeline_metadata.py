@@ -58,10 +58,9 @@ STEP_PARAMS = {
             "annotation.logfc_threshold": "float, minimum log2 fold-change",
             "annotation.enrichr_dbs": "list of strings, EnrichR database names",
             "annotation.primary_db": "string, primary annotation database",
-            "annotation.label_filter_preset": "string: 'CNS' (default) or 'blank'. CNS = use internal disqualify and prefer lists (managed in code, not exposed). blank = no disqualify, no prefer, no prefix (for testing).",
-            "annotation.label_disqualify_patterns": "list of strings (regex); EnrichR terms matching any are excluded. When provided, overrides the internal list for this run.",
-            "annotation.label_prefer_patterns": "list of strings (regex); terms matching any are preferred; best by p-value, else best overall with fallback prefix. When provided, overrides the internal list for this run.",
-            "annotation.label_fallback_prefix": "string; prefix when chosen label did not match prefer patterns. When provided, overrides the preset for this run.",
+            "annotation.label_disqualify_patterns": "optional list of strings (regex); EnrichR terms matching any are excluded. When provided, supersedes the default list for this run.",
+            "annotation.label_prefer_patterns": "optional list of strings (regex); terms matching any are preferred; best by p-value, else best overall with fallback prefix. When provided, supersedes the default list for this run.",
+            "annotation.label_fallback_prefix": "optional string; prefix when chosen label did not match prefer patterns. When provided, supersedes the default for this run.",
         },
     },
     5: {

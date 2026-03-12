@@ -23,3 +23,5 @@ run_new/*
 run_01/*
 logs/*
 outputs_skip/*
+
+__pycache__/*

@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -457,6 +458,10 @@ def run_agent_loop(
             result = execute_tool(name, arguments, project_root, run_dir_default)
             logger.tool_result(call_id, result)
             input_list.append({"type": "function_call_output", "call_id": call_id, "output": result})
+
+        if has_function_call:
+            print("[agent log] rate limit: waiting 5 seconds before next API call...", flush=True)
+            time.sleep(5)
 
         if not has_function_call:
             output_text = getattr(response, "output_text", None)
