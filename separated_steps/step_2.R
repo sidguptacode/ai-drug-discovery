@@ -50,11 +50,15 @@ n_workers <- as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", unset = NA))
 if (is.na(n_workers) || n_workers < 1L)
   n_workers <- max(1L, parallel::detectCores(logical = FALSE) %/% 2L)
 cat(sprintf("  Parallel workers: %d\n", n_workers))
+
 if (.Platform$OS.type == "unix") {
   future::plan(future::multicore, workers = n_workers)
 } else {
   future::plan(future::multisession, workers = n_workers)
 }
+
+# Use multisession to avoid fork OOM; multicore would fork the large R process.
+# future::plan(future::multisession, workers = n_workers)
 
 # ── SCTransform per sample ────────────────────────────────────────────────────
 sct_flavor <- if (requireNamespace("glmGamPoi", quietly = TRUE)) "v2" else "v1"

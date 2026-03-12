@@ -1,3 +1,25 @@
 /run_new
 
 /run_verify
+
+.env
+
+/.venv
+
+/.data
+
+# Temp outputs per run (runs/ holds config JSONs and is tracked)
+/outputs/*
+!/outputs/.gitkeep
+
+# Agent run logs (per run_id, multiple sessions per run)
+# /logs/*
+# !/logs/.gitkeep
+
+outputs/*
+runs/*
+run_verify/*
+run_new/*
+run_01/*
+logs/*
+outputs_skip/*

@@ -51,71 +51,101 @@ seurat_int <- readRDS(step3_path)
 cat(sprintf("  %d spots | communities: %s\n",
             ncol(seurat_int), paste(sort(unique(seurat_int$community)), collapse=" ")))
 
-# Switch to RNA assay; JoinLayers collapses per-sample layers so Wilcoxon can
-# run across all spots. NormalizeData creates the data layer (absent when
-# SCTransform was used without a subsequent NormalizeData call).
-DefaultAssay(seurat_int) <- "RNA"
-cat("  Joining RNA layers...\n")
-seurat_int <- JoinLayers(seurat_int)
-cat("  Normalizing RNA assay...\n")
-seurat_int <- NormalizeData(seurat_int, normalization.method = "LogNormalize",
-                            scale.factor = 10000, verbose = FALSE)
-Idents(seurat_int) <- "community"
+markers_path <- file.path(OUT_DIR, "step4_markers.csv")
+if (file.exists(markers_path)) {
+  cat("  Resuming: step4_markers.csv found, skipping FindAllMarkers.\n")
+  sig_markers <- read.csv(markers_path)
+  cat(sprintf("  Loaded %d markers across %d communities.\n",
+              nrow(sig_markers), length(unique(sig_markers$cluster))))
+} else {
+  # Switch to RNA assay; JoinLayers collapses per-sample layers so Wilcoxon can
+  # run across all spots. NormalizeData creates the data layer (absent when
+  # SCTransform was used without a subsequent NormalizeData call).
+  DefaultAssay(seurat_int) <- "RNA"
+  cat("  Joining RNA layers...\n")
+  seurat_int <- JoinLayers(seurat_int)
+  cat("  Normalizing RNA assay...\n")
+  seurat_int <- NormalizeData(seurat_int, normalization.method = "LogNormalize",
+                              scale.factor = 10000, verbose = FALSE)
+  Idents(seurat_int) <- "community"
 
-cat("  Running FindAllMarkers...\n")
-all_markers <- FindAllMarkers(seurat_int,
-                              only.pos        = TRUE,
-                              min.pct         = ANNOT$min_pct,
-                              logfc.threshold = ANNOT$logfc_threshold,
-                              test.use        = "wilcox",
-                              verbose         = FALSE)
+  cat("  Running FindAllMarkers...\n")
+  all_markers <- FindAllMarkers(seurat_int,
+                                only.pos        = TRUE,
+                                min.pct         = ANNOT$min_pct,
+                                logfc.threshold = ANNOT$logfc_threshold,
+                                test.use        = "wilcox",
+                                verbose         = FALSE)
 
-if (nrow(all_markers) == 0 || !"p_val_adj" %in% colnames(all_markers))
-  stop("FindAllMarkers returned no results.")
+  if (nrow(all_markers) == 0 || !"p_val_adj" %in% colnames(all_markers))
+    stop("FindAllMarkers returned no results.")
 
-sig_markers <- all_markers %>%
-  filter(p_val_adj < 0.05) %>%
-  arrange(cluster, desc(avg_log2FC))
-write.csv(sig_markers, file.path(OUT_DIR, "step4_markers.csv"), row.names = FALSE)
-cat(sprintf("  Found %d significant markers across %d communities.\n",
-            nrow(sig_markers), length(unique(sig_markers$cluster))))
+  sig_markers <- all_markers %>%
+    filter(p_val_adj < 0.05) %>%
+    arrange(cluster, desc(avg_log2FC))
+  write.csv(sig_markers, markers_path, row.names = FALSE)
+  cat(sprintf("  Found %d significant markers across %d communities.\n",
+              nrow(sig_markers), length(unique(sig_markers$cluster))))
+}
 
-# ── CNS-preference label picker ───────────────────────────────────────────────
-# Prefers the best-ranked EnrichR term matching a CNS tissue region OR a
-# CNS-specific cell type. Falls back to the overall best hit with a
-# "[non-CNS]" prefix so ambiguous labels are visible in output.
-# Returns list(term = character, adj_pvalue = numeric) for annotation scoring.
-pick_cns_label <- function(db_df) {
+# ── Label filter presets (CNS vs Blank) ───────────────────────────────────────
+# CNS = disqualify mouse/species, prefer CNS regions+cell types, fallback prefix "[non-CNS]"
+# Blank = no disqualify, no prefer, no prefix (raw best EnrichR term; for testing)
+DEFAULT_DISQUALIFY_CNS <- c("Mus musculus", "\\bMouse\\b", "\\bmouse\\b")
+DEFAULT_PREFER_CNS <- c(
+  "Brain", "Cortex", "Cerebellum", "Cerebellar", "Hippocampus",
+  "Spinal Cord", "Spinal", "\\bCNS\\b", "Brainstem", "Striatum",
+  "Thalamus", "Hypothalamus", "Midbrain", "\\bPons\\b", "Medulla",
+  "Olfactory", "Amygdala", "Prefrontal", "White Matter", "Grey Matter",
+  "Gray Matter", "Frontal Lobe", "Temporal Lobe", "Ventricle",
+  "Substantia Nigra", "Basal Ganglia", "Cerebrum",
+  "Astrocyte", "Oligodendrocyte", "\\bOPC\\b", "Oligodendrocyte Precursor",
+  "Microglia", "\\bNeuron\\b", "\\bNeuronal\\b", "Neural Progenitor",
+  "Radial Glia", "\\bGlioblast\\b", "Ependymal", "Choroid Plexus",
+  "Bergmann", "Purkinje", "Granule Cell", "Motor Neuron", "Interneuron",
+  "Schwann", "\\bGlia\\b", "\\bGlial\\b", "Neuroepithelial", "Tanycyte",
+  "Pericyte"
+)
+DEFAULT_FALLBACK_PREFIX_CNS <- "[non-CNS] "
+
+# Coerce config value to character vector (handles JSON list or YAML vector)
+config_char_vec <- function(x) {
+  if (is.null(x)) return(NULL)
+  as.character(unlist(x))
+}
+
+preset <- tolower(trimws(if (is.null(ANNOT$label_filter_preset) || !nzchar(trimws(ANNOT$label_filter_preset))) "CNS" else ANNOT$label_filter_preset))
+disqualify_list <- config_char_vec(ANNOT$label_disqualify_patterns)
+if (is.null(disqualify_list)) disqualify_list <- if (preset == "blank") character(0) else DEFAULT_DISQUALIFY_CNS
+prefer_list <- config_char_vec(ANNOT$label_prefer_patterns)
+if (is.null(prefer_list)) prefer_list <- if (preset == "blank") character(0) else DEFAULT_PREFER_CNS
+fallback_prefix <- if (!is.null(ANNOT$label_fallback_prefix)) trimws(as.character(ANNOT$label_fallback_prefix)[1]) else if (preset == "blank") "" else DEFAULT_FALLBACK_PREFIX_CNS
+
+disqualify_regex <- if (length(disqualify_list) > 0) paste(disqualify_list, collapse = "|") else NULL
+cat(sprintf("  Label filter: preset=%s | disqualify=%d patterns | prefer=%d patterns\n",
+            preset, length(disqualify_list), length(prefer_list)))
+
+# ── Preferred-label picker ────────────────────────────────────────────────────
+# prefer_patterns = character vector of regex; fallback_prefix = string (can be "")
+# If no prefer patterns: return best row by p-value with no prefix.
+# Else: prefer terms matching any pattern; if none match, use best overall and prefix.
+# Returns list(term = character, adj_pvalue = numeric)
+pick_preferred_label <- function(db_df, prefer_patterns, fallback_prefix) {
   if (nrow(db_df) == 0) return(list(term = NA_character_, adj_pvalue = NA_real_))
-
-  cns_regions <- paste(c(
-    "Brain", "Cortex", "Cerebellum", "Cerebellar", "Hippocampus",
-    "Spinal Cord", "Spinal", "\\bCNS\\b", "Brainstem", "Striatum",
-    "Thalamus", "Hypothalamus", "Midbrain", "\\bPons\\b", "Medulla",
-    "Olfactory", "Amygdala", "Prefrontal", "White Matter", "Grey Matter",
-    "Gray Matter", "Frontal Lobe", "Temporal Lobe", "Ventricle",
-    "Substantia Nigra", "Basal Ganglia", "Cerebrum"
-  ), collapse = "|")
-
-  cns_celltypes <- paste(c(
-    "Astrocyte", "Oligodendrocyte", "\\bOPC\\b", "Oligodendrocyte Precursor",
-    "Microglia", "\\bNeuron\\b", "\\bNeuronal\\b", "Neural Progenitor",
-    "Radial Glia", "\\bGlioblast\\b", "Ependymal", "Choroid Plexus",
-    "Bergmann", "Purkinje", "Granule Cell", "Motor Neuron", "Interneuron",
-    "Schwann", "\\bGlia\\b", "\\bGlial\\b", "Neuroepithelial", "Tanycyte",
-    "Pericyte"
-  ), collapse = "|")
-
-  cns_pattern <- paste(cns_regions, cns_celltypes, sep = "|")
-  cns_hits    <- db_df[grepl(cns_pattern, db_df$Term, ignore.case = TRUE), ]
-
-  if (nrow(cns_hits) > 0) {
-    row <- cns_hits %>% arrange(Adjusted.P.value) %>% slice_head(n = 1)
+  row <- db_df %>% arrange(Adjusted.P.value) %>% slice_head(n = 1)
+  best_term <- row %>% pull(Term)
+  best_pval <- row %>% pull(Adjusted.P.value)
+  if (length(prefer_patterns) == 0) {
+    return(list(term = best_term, adj_pvalue = best_pval))
+  }
+  prefer_regex <- paste(prefer_patterns, collapse = "|")
+  preferred <- db_df[grepl(prefer_regex, db_df$Term, ignore.case = TRUE), ]
+  if (nrow(preferred) > 0) {
+    row <- preferred %>% arrange(Adjusted.P.value) %>% slice_head(n = 1)
     return(list(term = row %>% pull(Term), adj_pvalue = row %>% pull(Adjusted.P.value)))
   }
-  row <- db_df %>% arrange(Adjusted.P.value) %>% slice_head(n = 1)
-  return(list(term = paste0("[non-CNS] ", row %>% pull(Term)),
-              adj_pvalue = row %>% pull(Adjusted.P.value)))
+  out_term <- if (nzchar(fallback_prefix)) paste0(fallback_prefix, best_term) else best_term
+  return(list(term = out_term, adj_pvalue = best_pval))
 }
 
 # ── EnrichR annotation ────────────────────────────────────────────────────────
@@ -136,10 +166,10 @@ if (has_enrichr) {
       if (length(top_genes) < 5) next
       tryCatch({
         res <- enrichr(top_genes, ANNOT$enrichr_dbs)
-        res <- lapply(res, function(df)
-          df[!grepl("Mus musculus|\\bMouse\\b|\\bmouse\\b", df$Term), ])
+        if (!is.null(disqualify_regex))
+          res <- lapply(res, function(df) df[!grepl(disqualify_regex, df$Term), ])
         comm_key <- as.character(comm)
-        pick     <- pick_cns_label(res[[ANNOT$primary_db]])
+        pick     <- pick_preferred_label(res[[ANNOT$primary_db]], prefer_list, fallback_prefix)
         cell_type_labels[comm_key] <- if (!is.na(pick$term)) pick$term else comm_key
         if (!is.na(pick$adj_pvalue)) annotation_adj_pvalue[comm_key] <- pick$adj_pvalue
         for (db in names(res))

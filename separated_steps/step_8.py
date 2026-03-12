@@ -115,6 +115,12 @@ for samp in SAMPLES:
         plt.close()
         print(f"    Saved: step8_{samp}_lr_spatial.pdf")
 
+    # stlearn stores adata.uns['lrfeatures'] with mixed types (e.g. 'nonzero-median'
+    # as numeric) that anndata's h5ad writer cannot serialize; remove it so write succeeds.
+    if "lrfeatures" in adata.uns:
+        del adata.uns["lrfeatures"]
+    # If this step causes issues, then try serializing the adata object using scanpy's save_h5ad function instead of anndata's write_h5ad function.
+
     out_path = os.path.join(OUT_DIR, f"step8_{samp}.h5ad")
     adata.write_h5ad(out_path)
     print(f"    Saved: step8_{samp}.h5ad")

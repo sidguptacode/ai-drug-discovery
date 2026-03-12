@@ -38,14 +38,34 @@ print(f"  min_spots={CCI_CFG['min_spots']} | significance_cutoff={CCI_CFG['signi
 
 EMPTY_CCI_COLS = ["lr_pair","sender","receiver","cci_score","p_val","sample"]
 
+# stlearn stores CCI results under label-suffixed keys when use_label is set
+# e.g. per_lr_cci_pvals_cell_type_label, per_lr_cci_cell_type_label
+
+
+def _get_cci_uns_keys(adata):
+    """Resolve pvals and score keys in adata.uns (exact or label-suffixed)."""
+    if "per_lr_cci_pvals" in adata.uns:
+        return adata.uns["per_lr_cci_pvals"], adata.uns.get("per_lr_results", {})
+    pvals_key = next((k for k in adata.uns if "per_lr_cci_pvals" in k), None)
+    if pvals_key is None:
+        return None, None
+    # Score key: per_lr_cci_* but not pvals, not raw
+    score_key = next(
+        (k for k in adata.uns
+         if k.startswith("per_lr_cci") and "pvals" not in k and "raw" not in k),
+        None,
+    )
+    score_dict = adata.uns[score_key] if score_key else {}
+    return adata.uns[pvals_key], score_dict
+
 
 def extract_cci_rows(adata, samp):
     rows = []
     sig  = CCI_CFG["significance_cutoff"]
 
-    if "per_lr_cci_pvals" in adata.uns:
-        pvals_dict = adata.uns["per_lr_cci_pvals"]
-        score_dict = adata.uns.get("per_lr_results", {})
+    pvals_dict, score_dict = _get_cci_uns_keys(adata)
+    if pvals_dict is not None:
+        score_dict = score_dict or {}
         for lr_pair, pval_df in pvals_dict.items():
             if not isinstance(pval_df, pd.DataFrame):
                 try:    pval_df = pd.DataFrame(pval_df)
