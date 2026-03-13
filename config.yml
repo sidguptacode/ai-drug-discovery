@@ -12,6 +12,10 @@ species:      "human"   # used by `stLearn LR database loader
 data_dir: "/w/20251/sarya/ai-drug-discovery/.data"
 out_dir:  "/w/20251/sarya/ai-drug-discovery/outputs"
 
+# ── Run (logging) ──────────────────────────────────────────────────────────────
+# Set at start of a run by the agent (e.g. scripts/set_run_id.sh). Step logs go to runs/<run_id>/logs/
+run_id: null
+
 # ── Samples ───────────────────────────────────────────────────────────────────
 samples:
 - "GSM8608424_VLP73_A1"
@@ -53,11 +57,9 @@ annotation:
     - "Human_Gene_Atlas"
   primary_db: "CellMarker_2024"
 
-  # Label filter: preset (internal lists) or agent override (pipeline_set_step_config).
-  # Preset "CNS" (default): use internal disqualify and prefer lists (not exposed to agent).
-  # Preset "blank": no disqualify, no prefer, no prefix — raw best EnrichR term (for testing).
-  # label_filter_preset: "CNS"
-  label_filter_preset: "blank"   # no disqualify, no prefer, no prefix
+  # Label filter: preset or agent override (pipeline_set_step_config).
+  # Preset "blank": no disqualify, no prefer, no prefix — raw best EnrichR term.
+  label_filter_preset: "blank"
 
   # Optional overrides: when provided, replace internal lists for this run (regex list or string).
   # label_disqualify_patterns: ["pattern1", "pattern2"]

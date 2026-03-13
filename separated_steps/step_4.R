@@ -88,38 +88,18 @@ if (file.exists(markers_path)) {
               nrow(sig_markers), length(unique(sig_markers$cluster))))
 }
 
-# ── Label filter presets (CNS vs Blank) ───────────────────────────────────────
-# CNS = disqualify mouse/species, prefer CNS regions+cell types, fallback prefix "[non-CNS]"
-# Blank = no disqualify, no prefer, no prefix (raw best EnrichR term; for testing)
-DEFAULT_DISQUALIFY_CNS <- c("Mus musculus", "\\bMouse\\b", "\\bmouse\\b")
-DEFAULT_PREFER_CNS <- c(
-  "Brain", "Cortex", "Cerebellum", "Cerebellar", "Hippocampus",
-  "Spinal Cord", "Spinal", "\\bCNS\\b", "Brainstem", "Striatum",
-  "Thalamus", "Hypothalamus", "Midbrain", "\\bPons\\b", "Medulla",
-  "Olfactory", "Amygdala", "Prefrontal", "White Matter", "Grey Matter",
-  "Gray Matter", "Frontal Lobe", "Temporal Lobe", "Ventricle",
-  "Substantia Nigra", "Basal Ganglia", "Cerebrum",
-  "Astrocyte", "Oligodendrocyte", "\\bOPC\\b", "Oligodendrocyte Precursor",
-  "Microglia", "\\bNeuron\\b", "\\bNeuronal\\b", "Neural Progenitor",
-  "Radial Glia", "\\bGlioblast\\b", "Ependymal", "Choroid Plexus",
-  "Bergmann", "Purkinje", "Granule Cell", "Motor Neuron", "Interneuron",
-  "Schwann", "\\bGlia\\b", "\\bGlial\\b", "Neuroepithelial", "Tanycyte",
-  "Pericyte"
-)
-DEFAULT_FALLBACK_PREFIX_CNS <- "[non-CNS] "
-
 # Coerce config value to character vector (handles JSON list or YAML vector)
 config_char_vec <- function(x) {
   if (is.null(x)) return(NULL)
   as.character(unlist(x))
 }
 
-preset <- tolower(trimws(if (is.null(ANNOT$label_filter_preset) || !nzchar(trimws(ANNOT$label_filter_preset))) "CNS" else ANNOT$label_filter_preset))
+preset <- tolower(trimws(if (is.null(ANNOT$label_filter_preset) || !nzchar(trimws(ANNOT$label_filter_preset))) "blank" else ANNOT$label_filter_preset))
 disqualify_list <- config_char_vec(ANNOT$label_disqualify_patterns)
-if (is.null(disqualify_list)) disqualify_list <- if (preset == "blank") character(0) else DEFAULT_DISQUALIFY_CNS
+if (is.null(disqualify_list)) disqualify_list <- character(0)
 prefer_list <- config_char_vec(ANNOT$label_prefer_patterns)
-if (is.null(prefer_list)) prefer_list <- if (preset == "blank") character(0) else DEFAULT_PREFER_CNS
-fallback_prefix <- if (!is.null(ANNOT$label_fallback_prefix)) trimws(as.character(ANNOT$label_fallback_prefix)[1]) else if (preset == "blank") "" else DEFAULT_FALLBACK_PREFIX_CNS
+if (is.null(prefer_list)) prefer_list <- character(0)
+fallback_prefix <- if (!is.null(ANNOT$label_fallback_prefix)) trimws(as.character(ANNOT$label_fallback_prefix)[1]) else ""
 
 disqualify_regex <- if (length(disqualify_list) > 0) paste(disqualify_list, collapse = "|") else NULL
 cat(sprintf("  Label filter: preset=%s | disqualify=%d patterns | prefer=%d patterns\n",
