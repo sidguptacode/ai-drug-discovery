@@ -14,9 +14,7 @@ out_dir:  "/w/20251/sarya/ai-drug-discovery/outputs"
 
 # ── Run (logging) ──────────────────────────────────────────────────────────────
 # Set at start of a run by the agent (e.g. scripts/set_run_id.sh). Step logs go to runs/<run_id>/logs/
-run_id: null
-
-# ── Samples ───────────────────────────────────────────────────────────────────
+run_id: "ebeeb6fa-ce7e-4fdf-9ef9-7ed2ac71a3eb"
 samples:
 - "GSM8608424_VLP73_A1"
 - "GSM8608423_VLP74_A1"
@@ -61,9 +59,9 @@ annotation:
   # Preset "blank": no disqualify, no prefer, no prefix — raw best EnrichR term.
   label_filter_preset: "blank"
 
-  # Optional overrides: when provided, replace internal lists for this run (regex list or string).
-  # label_disqualify_patterns: ["pattern1", "pattern2"]
-  # label_prefer_patterns: ["pattern1", "pattern2"]
+  # DIPG = brain; species = human. Exclude non-brain tissues and mouse terms; prefer brain/human.
+  label_disqualify_patterns: ["Mouse", "Lung", "Spleen", "Intestine", "Trachea", "Kidney", "Breast"]
+  label_prefer_patterns: ["Brain", "Human"]
   # label_fallback_prefix: "optional prefix string"
 
 # ── Step 7: Preprocessing (Python) ───────────────────────────────────────────

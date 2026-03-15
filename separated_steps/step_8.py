@@ -80,6 +80,11 @@ for samp in SAMPLES:
         print(f"ERROR: {in_path} not found. Run step_7.py first.", file=sys.stderr)
         sys.exit(1)
 
+    out_path = os.path.join(OUT_DIR, f"step8_{samp}.h5ad")
+    if os.path.exists(out_path):
+        print(f"\n  [{samp}] Skip (step8 output exists).")
+        continue
+
     print(f"\n  [{samp}] Running LR scoring...")
     adata = sc.read_h5ad(in_path)
 
@@ -121,7 +126,6 @@ for samp in SAMPLES:
         del adata.uns["lrfeatures"]
     # If this step causes issues, then try serializing the adata object using scanpy's save_h5ad function instead of anndata's write_h5ad function.
 
-    out_path = os.path.join(OUT_DIR, f"step8_{samp}.h5ad")
     adata.write_h5ad(out_path)
     print(f"    Saved: step8_{samp}.h5ad")
 

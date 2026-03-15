@@ -2,6 +2,8 @@
 
 Use these checkpoints to reflect on pipeline outputs before trusting results or changing code. Apply them after the relevant steps (e.g. after 1→2, after 4, after 8→10).
 
+**Agent obligation**: At each checkpoint, perform **every** item below. Do not proceed to the next step until all checks are satisfied or you have applied a remediation (config change + re-run) and documented it in `runs/<run_id>/run_info.json`. Before reflecting, read `config.yml` for **dataset identity** (`species`, `disease`, `dataset_name`) and use them when evaluating outputs.
+
 ---
 
 ## Checkpoint 1: QC effectiveness
@@ -28,8 +30,14 @@ Use these checkpoints to reflect on pipeline outputs before trusting results or 
 
 **What to do**:
 
+- Read **config.yml** for **dataset identity**: `species`, `disease`, and (if present) any tissue or sample context. Many diseases imply a body region or tissue (e.g. brain, lung, liver); use that when judging labels.
 - Open **step4_annotation_scores.csv**: per-cluster EnrichR label and adjusted P-value; aggregate mean/median and fraction with p < 0.05.
 - Open **step4_enrichr_*.csv** (and **step4_annotation.pdf**) to see which terms were considered and the chosen labels.
+
+**Label–config consistency (mandatory)**:
+
+- Cross-check assigned labels against what is known from config: **species** (labels should match the dataset species when the database mixes species), and **tissue/region** (labels should be plausible for the disease or sample context—e.g. brain disease → brain-relevant cell types; lung sample → lung/airway plausible).
+- If any label **contradicts** dataset identity (wrong species, or tissue/body region that does not fit the disease or sample), do not treat the run as acceptable. Remediate (e.g. `label_prefer_patterns` / `label_disqualify_patterns` to align with species and context, or change `enrichr_dbs`), re-run from step 4, and document in `runs/<run_id>/run_info.json`.
 
 **Reflect**:
 

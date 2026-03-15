@@ -31,7 +31,7 @@ Final outputs of interest: `GROUND_TRUTH_lr_pairs_ranked.csv` and per-sample CCI
 
 - **Step 4** runs FindAllMarkers, queries EnrichR with top marker genes per community, and assigns cell-type labels. Outputs include marker tables, EnrichR CSVs, and `step4_annotation_scores.csv`.
 
-**Check**: Review labels and EnrichR scores for biological plausibility given the disease/sample. Tune `annotation.*` in config (e.g. `primary_db`, `label_filter_preset`, prefer/disqualify patterns) if labels are poor.
+**Check**: Review labels and EnrichR scores for biological plausibility. **Cross-check labels with dataset identity** in config: species and (where applicable) tissue/region implied by disease or sample; labels should not contradict these. If they do, use `label_prefer_patterns` or `label_disqualify_patterns` and re-run step 4. Tune `annotation.*` (e.g. `primary_db`, `label_filter_preset`) if labels are poor.
 
 ### Step 8: LR scoring
 

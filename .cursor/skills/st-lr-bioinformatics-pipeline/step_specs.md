@@ -2,6 +2,10 @@
 
 All steps read config from `config.yml` at repo root, or from the path in `PIPELINE_STEP_CONFIG`. Paths below are relative to `OUT_DIR` (and `DATA_DIR` for raw data) defined in config.
 
+## Waiting for RDS writes
+
+R steps (1–5) write large `.rds` files. The process may return or log "complete" before the file is fully written to disk (buffering/sync). **Before starting the step that consumes an RDS** (e.g. step 5 reads `step4_seurat_annotated.rds`), ensure the file has finished growing: monitor its size (e.g. `stat -c%s OUT_DIR/stepN_*.rds`) every 2–3 seconds until the value is unchanged for at least 2–3 consecutive checks. Do not run the next step until the RDS size is stable; otherwise the reader may see a truncated or corrupt file.
+
 ## .data layout
 
 `data_dir` in config (e.g. `.data`) must contain one folder per sample. Per sample (e.g. `GSM8608424_VLP73_A1`):
