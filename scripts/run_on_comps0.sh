@@ -20,4 +20,8 @@ if [[ "$SCRIPT" == /* ]]; then
 else
   SCRIPT_REL="$SCRIPT"
 fi
-ssh sarya@comps0 "cd $REPO_ON_COMPS0 && srun --partition gpunodes -c 2 --mem=64G -t 60 bash $SCRIPT_REL"
+# Forward run-specific config so steps use merged config when PIPELINE_RUN_ID is set
+ENV_EXPORTS=""
+[[ -n "${PIPELINE_RUN_ID:-}" ]] && ENV_EXPORTS="export PIPELINE_RUN_ID='$PIPELINE_RUN_ID'; "
+[[ -n "${PIPELINE_STEP_CONFIG:-}" ]] && ENV_EXPORTS="${ENV_EXPORTS}export PIPELINE_STEP_CONFIG='$PIPELINE_STEP_CONFIG'; "
+ssh sarya@comps0 "${ENV_EXPORTS}cd $REPO_ON_COMPS0 && srun --partition gpunodes -c 2 --mem=64G -t 60 bash $SCRIPT_REL"

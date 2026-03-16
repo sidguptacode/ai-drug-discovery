@@ -10,11 +10,14 @@ species:      "human"   # used by `stLearn LR database loader
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 data_dir: "/w/20251/sarya/ai-drug-discovery/.data"
+# Base out_dir (used when not running with PIPELINE_RUN_ID). When running with PIPELINE_RUN_ID, merged config sets out_dir to outputs/<run_id>/.
 out_dir:  "/w/20251/sarya/ai-drug-discovery/outputs"
 
 # ── Run (logging) ──────────────────────────────────────────────────────────────
-# Set at start of a run by the agent (e.g. scripts/set_run_id.sh). Step logs go to runs/<run_id>/logs/
-run_id: "ebeeb6fa-ce7e-4fdf-9ef9-7ed2ac71a3eb"
+# Base config is static. run_id and run-specific overrides live in runs/<run_id>/config_overrides.yml.
+# Run-specific script overwrites go in runs/<run_id>/steps/ (document in config_overrides.yml script_overrides).
+# When running steps for a run, set PIPELINE_RUN_ID=<run_id> so steps use merged config and optional steps/.
+run_id: null
 samples:
 - "GSM8608424_VLP73_A1"
 - "GSM8608423_VLP74_A1"
@@ -58,10 +61,9 @@ annotation:
   # Label filter: preset or agent override (pipeline_set_step_config).
   # Preset "blank": no disqualify, no prefer, no prefix — raw best EnrichR term.
   label_filter_preset: "blank"
-
-  # DIPG = brain; species = human. Exclude non-brain tissues and mouse terms; prefer brain/human.
-  label_disqualify_patterns: ["Mouse", "Lung", "Spleen", "Intestine", "Trachea", "Kidney", "Breast"]
-  label_prefer_patterns: ["Brain", "Human"]
+  # Run-specific: set in runs/<run_id>/config_overrides.yml
+  label_disqualify_patterns: []
+  label_prefer_patterns: []
   # label_fallback_prefix: "optional prefix string"
 
 # ── Step 7: Preprocessing (Python) ───────────────────────────────────────────

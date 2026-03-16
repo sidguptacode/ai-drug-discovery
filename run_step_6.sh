@@ -5,7 +5,13 @@ set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
-CONFIG="${PIPELINE_STEP_CONFIG:-$REPO_ROOT/config.yml}"
+if [[ -n "${PIPELINE_RUN_ID:-}" ]] && [[ -f "$REPO_ROOT/runs/$PIPELINE_RUN_ID/config_overrides.yml" ]]; then
+  MERGED="$REPO_ROOT/runs/$PIPELINE_RUN_ID/config_merged.yml"
+  python3 "$REPO_ROOT/scripts/merge_config.py" "$REPO_ROOT/config.yml" "$REPO_ROOT/runs/$PIPELINE_RUN_ID/config_overrides.yml" "$MERGED" --run-id "$PIPELINE_RUN_ID"
+  CONFIG="$MERGED"
+else
+  CONFIG="${PIPELINE_STEP_CONFIG:-$REPO_ROOT/config.yml}"
+fi
 if [[ ! -f "$CONFIG" ]]; then
   echo "ERROR: Config not found: $CONFIG (set PIPELINE_STEP_CONFIG if needed)" >&2
   exit 1
@@ -24,9 +30,13 @@ if command -v conda &>/dev/null; then
 fi
 PYTHON=$(command -v python 2>/dev/null || command -v python3)
 
+# Run-specific script override: separated_steps/ is static; use runs/<run_id>/steps/ when present
+STEP_SCRIPT="separated_steps/step_6.py"
+[[ -n "$RUN_ID" ]] && [[ -f "$REPO_ROOT/runs/$RUN_ID/steps/step_6.py" ]] && STEP_SCRIPT="$REPO_ROOT/runs/$RUN_ID/steps/step_6.py"
+
 echo "====== Step 6 — Load samples (Python) ======"
 if [[ -n "$LOG_FILE" ]]; then
-  "$PYTHON" separated_steps/step_6.py 2>&1 | tee "$LOG_FILE"
+  "$PYTHON" "$STEP_SCRIPT" 2>&1 | tee "$LOG_FILE"
 else
-  "$PYTHON" separated_steps/step_6.py
+  "$PYTHON" "$STEP_SCRIPT"
 fi
