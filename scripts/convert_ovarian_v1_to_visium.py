@@ -56,6 +56,7 @@ def write_10x_h5(out_path: Path, matrix: sp.spmatrix, barcodes: list[str], featu
         feats.create_dataset("id", data=np.array(feature_ids, dtype=object), dtype=dt)
         feats.create_dataset("name", data=np.array(feature_names, dtype=object), dtype=dt)
         feats.create_dataset("feature_type", data=np.array([feature_type] * n_f, dtype=object), dtype=dt)
+        feats.create_dataset("genome", data=np.array(["GRCh38"] * n_f, dtype=object), dtype=dt)
 
 
 def convert_sample(prefix: str, sample_id: str, out_dir: Path) -> None:
@@ -114,7 +115,10 @@ def convert_sample(prefix: str, sample_id: str, out_dir: Path) -> None:
     pos_path = sample_out / f"{sample_id}_tissue_positions_list.csv"
     pos_df.to_csv(pos_path, index=False)
     sf_path = sample_out / f"{sample_id}_scalefactors_json.json"
-    sf_path.write_text(json.dumps({"tissue_hires_scalef": 1.0}))
+    sf_path.write_text(json.dumps({
+        "tissue_hires_scalef": 1.0,
+        "spot_diameter_fullres": 55
+    }))
     print(f"  {sample_id}: {n_cells} spots, {n_genes} genes -> {sample_out}")
 
 
