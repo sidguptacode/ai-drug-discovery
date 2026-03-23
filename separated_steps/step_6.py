@@ -23,9 +23,10 @@ with open(CONFIG_PATH, encoding="utf-8") as f:
     else:
         cfg = yaml.safe_load(f)
 
-DATA_DIR = cfg["data_dir"]
-OUT_DIR  = cfg["out_dir"]
-SAMPLES  = cfg["samples"]
+DATA_DIR    = cfg["data_dir"]
+OUT_DIR     = cfg["out_dir"]
+SAMPLES     = cfg["samples"]
+SAMPLE_DIRS = cfg.get("sample_dirs") or {}
 
 os.makedirs(OUT_DIR, exist_ok=True)
 sc.settings.verbosity = 1
@@ -45,11 +46,12 @@ print(f"  Loaded metadata: {len(meta_df)} spots | "
 
 
 def load_sample(sample_name: str, meta_df: pd.DataFrame) -> sc.AnnData:
-    h5_path    = os.path.join(DATA_DIR, sample_name,
+    samp_dir   = SAMPLE_DIRS.get(sample_name, sample_name)
+    h5_path    = os.path.join(DATA_DIR, samp_dir,
                               f"{sample_name}_filtered_feature_bc_matrix.h5")
-    coord_path = os.path.join(DATA_DIR, sample_name,
+    coord_path = os.path.join(DATA_DIR, samp_dir,
                               f"{sample_name}_tissue_positions_list.csv")
-    sf_path    = os.path.join(DATA_DIR, sample_name,
+    sf_path    = os.path.join(DATA_DIR, samp_dir,
                               f"{sample_name}_scalefactors_json.json")
 
     adata = sc.read_10x_h5(h5_path)

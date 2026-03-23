@@ -24,4 +24,12 @@ run_01/*
 logs/*
 outputs_skip/*
 
+*/__pycache__/*
+
+.venv*
+
 __pycache__/*
+output
+data/
+
+.python_version

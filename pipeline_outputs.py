@@ -37,6 +37,67 @@ def _file_exists_and_nonempty(path: Path) -> bool:
     return path.exists() and path.stat().st_size > 0
 
 
+def _score_gaussian_variance(umap_csv_path: Path) -> dict | None:
+    """
+    Per-cluster 2D Gaussian variance from UMAP coordinates.
+    total_variance per cluster = var(UMAP_1) + var(UMAP_2)  (trace of covariance matrix).
+    aggregate_score = weighted mean of total_variance, weighted by cluster cell count.
+    Lower = tighter clusters = better separation.
+    Returns None if CSV is missing or unreadable.
+    """
+    if not _file_exists_and_nonempty(umap_csv_path):
+        return None
+    import csv
+    import statistics
+
+    rows_by_cluster: dict[str, list[tuple[float, float]]] = {}
+    try:
+        with open(umap_csv_path, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                c = row.get("community", "").strip()
+                if not c:
+                    continue
+                try:
+                    rows_by_cluster.setdefault(c, []).append(
+                        (float(row["UMAP_1"]), float(row["UMAP_2"]))
+                    )
+                except (KeyError, ValueError):
+                    continue
+    except OSError:
+        return None
+
+    cluster_metrics = []
+    total_weighted_var, total_cells = 0.0, 0
+    for cluster, coords in sorted(rows_by_cluster.items()):
+        n = len(coords)
+        if n < 2:
+            var1, var2 = 0.0, 0.0
+        else:
+            var1 = statistics.variance([c[0] for c in coords])
+            var2 = statistics.variance([c[1] for c in coords])
+        total_var = round(var1 + var2, 6)
+        cluster_metrics.append({
+            "cluster": cluster,
+            "n_cells": n,
+            "var_umap1": round(var1, 6),
+            "var_umap2": round(var2, 6),
+            "total_variance": total_var,
+        })
+        total_weighted_var += total_var * n
+        total_cells += n
+
+    if total_cells == 0:
+        return None
+
+    return {
+        "n_clusters": len(cluster_metrics),
+        "n_cells_total": total_cells,
+        "aggregate_score": round(total_weighted_var / total_cells, 6),
+        "score_note": "weighted mean per-cluster UMAP variance (lower = tighter clusters)",
+        "cluster_metrics": cluster_metrics,
+    }
+
+
 def read_step_outputs(
     step: int,
     run_dir: Path,
@@ -99,8 +160,20 @@ def read_step_outputs(
         return {"step": 2, "status": "completed", "artifacts": artifacts, "message": "See step2_integration.pdf."}
 
     if step == 3:
-        artifacts = [n for n in ["step3_seurat_clustered.rds", "step3_clustree.pdf", "step3_clusters.pdf"] if _file_exists_and_nonempty(out_dir / n)]
-        return {"step": 3, "status": "completed", "artifacts": artifacts, "message": "See step3_clusters.pdf."}
+        artifact_names = ["step3_seurat_clustered.rds", "step3_clustree.pdf",
+                          "step3_clusters.pdf", "step3_umap_clusters.csv"]
+        artifacts = [n for n in artifact_names if _file_exists_and_nonempty(out_dir / n)]
+        out = {
+            "step": 3,
+            "status": "completed",
+            "artifacts": artifacts,
+            "message": "See step3_clusters.pdf. cluster_quality contains per-cluster UMAP variance scores (lower = tighter clusters).",
+        }
+        quality = _score_gaussian_variance(out_dir / "step3_umap_clusters.csv")
+        out["cluster_quality"] = quality
+        if quality is None:
+            out["message"] += " (cluster_quality unavailable: step3_umap_clusters.csv missing)"
+        return out
 
     if step == 4:
         markers_path = out_dir / "step4_markers.csv"

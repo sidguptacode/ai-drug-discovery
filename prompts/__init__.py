@@ -1,0 +1,1 @@
+from spatialagent import ovarian_1_prompt, dipg_prompt

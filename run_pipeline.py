@@ -27,12 +27,12 @@ except ImportError:
 # Per-step config schema (for seeding from full config; agent uses same paths)
 # -----------------------------------------------------------------------------
 STEP_CONFIG = {
-    1: (["data_dir", "out_dir", "samples"], ["qc"]),
+    1: (["data_dir", "out_dir", "samples", "sample_dirs"], ["qc"]),
     2: (["out_dir", "samples"], ["integration"]),
     3: (["out_dir"], ["clustering"]),
     4: (["out_dir"], ["annotation"]),
     5: (["out_dir", "samples"], []),
-    6: (["data_dir", "out_dir", "samples"], []),
+    6: (["data_dir", "out_dir", "samples", "sample_dirs"], []),
     7: (["out_dir", "samples", "dataset_name"], ["preprocessing"]),
     8: (["out_dir", "samples", "dataset_name", "species"], ["lr_scoring"]),
     9: (["out_dir", "samples"], ["cci"]),

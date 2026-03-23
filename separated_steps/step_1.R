@@ -24,10 +24,11 @@ if (grepl("\\.json$", cfg_path, ignore.case = TRUE)) {
 } else {
   cfg <- yaml::read_yaml(cfg_path)
 }
-DATA_DIR <- cfg$data_dir
-OUT_DIR  <- cfg$out_dir
-SAMPLES  <- if (is.list(cfg$samples)) unlist(cfg$samples) else cfg$samples
-QC       <- cfg$qc
+DATA_DIR    <- cfg$data_dir
+OUT_DIR     <- cfg$out_dir
+SAMPLES     <- if (is.list(cfg$samples)) unlist(cfg$samples) else cfg$samples
+SAMPLE_DIRS <- if (!is.null(cfg$sample_dirs)) cfg$sample_dirs else list()
+QC          <- cfg$qc
 
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 set.seed(42)
@@ -38,8 +39,9 @@ if (!is.null(QC$mt_cutoff)) cat(sprintf(" | MT cutoff: %.0f%%", QC$mt_cutoff))
 cat("\n")
 
 load_and_qc <- function(samp) {
-  h5_path    <- file.path(DATA_DIR, samp, paste0(samp, "_filtered_feature_bc_matrix.h5"))
-  coord_path <- file.path(DATA_DIR, samp, paste0(samp, "_tissue_positions_list.csv"))
+  samp_dir   <- if (!is.null(SAMPLE_DIRS[[samp]])) SAMPLE_DIRS[[samp]] else samp
+  h5_path    <- file.path(DATA_DIR, samp_dir, paste0(samp, "_filtered_feature_bc_matrix.h5"))
+  coord_path <- file.path(DATA_DIR, samp_dir, paste0(samp, "_tissue_positions_list.csv"))
 
   counts <- Read10X_h5(h5_path, use.names = TRUE, unique.features = TRUE)
   so     <- CreateSeuratObject(counts = counts, project = samp,

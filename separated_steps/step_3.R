@@ -95,4 +95,16 @@ cat("  Saved: step3_clusters.pdf\n")
 saveRDS(seurat_int, file.path(OUT_DIR, "step3_seurat_clustered.rds"))
 cat("  Saved: step3_seurat_clustered.rds\n")
 
+# Export UMAP coordinates + cluster labels for Python quality scoring
+umap_emb <- seurat_int@reductions$umap@cell.embeddings
+umap_df  <- data.frame(
+  cell_barcode = rownames(umap_emb),
+  UMAP_1       = umap_emb[, 1],
+  UMAP_2       = umap_emb[, 2],
+  community    = seurat_int$community,
+  stringsAsFactors = FALSE
+)
+write.csv(umap_df, file.path(OUT_DIR, "step3_umap_clusters.csv"), row.names = FALSE)
+cat("  Saved: step3_umap_clusters.csv\n")
+
 cat(sprintf("\n====== step_3.R COMPLETE | %d communities ======\n", n_comm))

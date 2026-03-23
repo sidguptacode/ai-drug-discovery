@@ -11,7 +11,7 @@ from pathlib import Path
 OUTPUT_LAYOUT = {
     1: ["step1_seurat_list.rds", "step1_qc.pdf"],
     2: ["step2_seurat_integrated.rds", "step2_integration.pdf"],
-    3: ["step3_seurat_clustered.rds", "step3_clustree.pdf", "step3_clusters.pdf"],
+    3: ["step3_seurat_clustered.rds", "step3_clustree.pdf", "step3_clusters.pdf", "step3_umap_clusters.csv"],
     4: ["step4_seurat_annotated.rds", "step4_markers.csv", "step4_enrichr_<community>_<db>.csv", "step4_annotation.pdf", "step4_annotation_scores.csv"],
     5: ["cell_type_metadata.csv", "seurat_integrated.rds"],
     6: ["step6_<sample>.h5ad"],
@@ -25,7 +25,7 @@ OUTPUT_LAYOUT = {
 STEP_PARAMS = {
     1: {
         "description": "QC: Load each sample from data_dir, apply nCount and optional mitochondrial filters. Produces per-sample Seurat objects and a QC plot.",
-        "shared": ["data_dir", "out_dir", "samples"],
+        "shared": ["data_dir", "out_dir", "samples", "sample_dirs"],
         "hyperparameters": {
             "qc.ncount_min": "integer, minimum total UMI counts per spot",
             "qc.ncount_max": "integer, maximum total UMI counts per spot",
@@ -46,7 +46,7 @@ STEP_PARAMS = {
         "shared": ["out_dir"],
         "hyperparameters": {
             "clustering.resolutions": "list of floats, resolution values to try",
-            "clustering.chosen_resolution": "float, resolution used for downstream",
+            "clustering.chosen_resolution": "float, resolution used for downstream. Compare aggregate_score in cluster_quality across resolutions: lower score = tighter UMAP clusters.",
         },
     },
     4: {
@@ -70,7 +70,7 @@ STEP_PARAMS = {
     },
     6: {
         "description": "Load Python: Read each sample’s counts and coords from data_dir, attach cell-type labels from step 5. Produces one h5ad per sample.",
-        "shared": ["data_dir", "out_dir", "samples"],
+        "shared": ["data_dir", "out_dir", "samples", "sample_dirs"],
         "hyperparameters": {},
     },
     7: {
@@ -145,13 +145,13 @@ def get_pipeline_metadata(run_dir: Path | str | None = None) -> dict:
     """
     out = {
         "data_folder_layout": {
-            "description": "data_dir is the root; under it each sample has its own folder named exactly <sample_id>.",
+            "description": "data_dir is the root. Each sample has its own subdirectory. The subdirectory name is given by sample_dirs[sample_id] if present, otherwise defaults to the sample_id itself.",
             "required_files_per_sample": [
                 "{sample_id}_filtered_feature_bc_matrix.h5",
                 "{sample_id}_tissue_positions_list.csv",
                 "{sample_id}_scalefactors_json.json",
             ],
-            "note": "Sample names in config 'samples' must match folder names under data_dir.",
+            "note": "Files are always named with the sample_id as prefix. sample_dirs maps each sample_id to its subdirectory name when the two differ (e.g. sample_id='GSM123_A1', directory='sample1').",
         },
         "output_folder_layout": {
             "description": "out_dir is set per run (e.g. outputs/<run_id>). Steps write the following files:",

@@ -9,10 +9,13 @@ disease:      "DIPG"
 species:      "human"   # used by `stLearn LR database loader
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-data_dir: "/w/20251/sarya/ai-drug-discovery/.data"
-out_dir:  "/w/20251/sarya/ai-drug-discovery/outputs"
+#data_dir: "/w/20251/sarya/ai-drug-discovery/.data"
+#out_dir:  "/w/20251/sarya/ai-drug-discovery/outputs"
+data_dir: "/Users/calebchin/Projects/ai-drug-discovery/data/evals/dipg/spatial_transcriptomics_samples"
+out_dir: "/Users/calebchin/Projects/ai-drug-discovery/outputs/structured_agent"
 
 # ── Samples ───────────────────────────────────────────────────────────────────
+# sample IDs used as labels throughout the pipeline (output filenames, metadata, etc.)
 samples:
 - "GSM8608424_VLP73_A1"
 - "GSM8608423_VLP74_A1"
@@ -24,6 +27,21 @@ samples:
 - "GSM8608417__4_VLP65_20221019_D"
 - "GSM8608416__3_VLP70_20221108_D2"
 - "GSM8608415_VLP73_D1"
+
+# Maps each sample ID to its subdirectory name under data_dir.
+# Files inside are expected to be named: <sample_id>_filtered_feature_bc_matrix.h5, etc.
+# If a sample ID is not listed here, the pipeline falls back to using the sample ID as the directory name.
+sample_dirs:
+  GSM8608424_VLP73_A1:            "sample1"
+  GSM8608423_VLP74_A1:            "sample2"
+  GSM8608422_VLP74_D1:            "sample3"
+  GSM8608421_C1_VLP45:            "sample4"
+  GSM8608420_B1_VLP49:            "sample5"
+  GSM8608419_VLP70_20221108_A2:   "sample6"
+  GSM8608418_VLP70_20221108_D1:   "sample7"
+  GSM8608417__4_VLP65_20221019_D: "sample8"
+  GSM8608416__3_VLP70_20221108_D2: "sample9"
+  GSM8608415_VLP73_D1:            "sample10"
 
 # ── Step 1: QC ────────────────────────────────────────────────────────────────
 qc:
