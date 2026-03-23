@@ -62,7 +62,7 @@ PIPELINE_TOOLS = [
     {
         "type": "function",
         "name": "pipeline_set_step_config",
-        "description": "Update hyperparameters for a step. Only provided keys are changed (merge semantics).",
+        "description": "Update hyperparameters for a step. Only call this when you have specific values to change — do NOT call it without an 'updates' payload. Only provided keys are changed (merge semantics).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -328,6 +328,8 @@ def execute_tool(
 
     if name == "pipeline_set_step_config":
         step = int(args["step"])
+        if "updates" not in args:
+            return json.dumps({"error": "pipeline_set_step_config requires an 'updates' object. Call this tool only when you have specific config values to change."})
         updates = args["updates"]
         path = run_pipeline.get_step_config_path(step, run_dir)
         if not path.exists():
