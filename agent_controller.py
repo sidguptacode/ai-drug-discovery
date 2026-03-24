@@ -149,6 +149,7 @@ class AgentLogger:
         self.log_dir = self.project_root / "logs" / run_id
         self.log_path = _unique_log_path(self.log_dir)
         self.events = []
+        self._start_time = time.time()
 
     def _emit(self, event_type: str, payload: dict) -> None:
         event = {"ts": datetime.now().isoformat(), "type": event_type, **payload}
@@ -213,11 +214,63 @@ class AgentLogger:
     def final_response(self, text: str) -> None:
         self._emit("final_response", {"text": text})
 
+    def _build_summary(self) -> dict:
+        """Compute statistics over logged events."""
+        tool_counts: dict[str, int] = {}
+        step_run_counts: dict[int, int] = {}
+        total_rounds = 0
+        total_tool_calls = 0
+        total_input_tokens = 0
+        total_output_tokens = 0
+
+        for ev in self.events:
+            if ev["type"] == "tool_call":
+                name = ev.get("name", "unknown")
+                tool_counts[name] = tool_counts.get(name, 0) + 1
+                total_tool_calls += 1
+                # Track per-step run counts
+                if name == "pipeline_run_step":
+                    try:
+                        step_num = json.loads(ev.get("arguments", "{}")).get("step")
+                        if step_num is not None:
+                            step_run_counts[int(step_num)] = step_run_counts.get(int(step_num), 0) + 1
+                    except (json.JSONDecodeError, TypeError, ValueError):
+                        pass
+            elif ev["type"] == "api_response":
+                total_rounds = max(total_rounds, ev.get("round", 0))
+            # Token usage if present
+            for key in ("input_tokens", "prompt_tokens"):
+                if key in ev:
+                    total_input_tokens += ev[key]
+                    break
+            for key in ("output_tokens", "completion_tokens"):
+                if key in ev:
+                    total_output_tokens += ev[key]
+                    break
+
+        elapsed = round(time.time() - self._start_time, 1)
+        return {
+            "elapsed_seconds": elapsed,
+            "total_api_rounds": total_rounds,
+            "total_tool_calls": total_tool_calls,
+            "tool_call_counts": tool_counts,
+            "step_run_counts": {str(k): v for k, v in sorted(step_run_counts.items())},
+            "total_input_tokens": total_input_tokens or None,
+            "total_output_tokens": total_output_tokens or None,
+        }
+
     def session_end(self) -> None:
+        summary = self._build_summary()
         self._emit("session_end", {"log_path": str(self.log_path)})
         with open(self.log_path, "w", encoding="utf-8") as f:
-            json.dump({"run_id": self.run_id, "events": self.events}, f, indent=2)
+            json.dump({"run_id": self.run_id, "summary": summary, "events": self.events}, f, indent=2)
         print(f"[agent log] wrote {len(self.events)} events to {self.log_path}", flush=True)
+        print(f"[agent log] summary: rounds={summary['total_api_rounds']} "
+              f"tool_calls={summary['total_tool_calls']} "
+              f"elapsed={summary['elapsed_seconds']}s", flush=True)
+        print(f"[agent log] tool_call_counts: {summary['tool_call_counts']}", flush=True)
+        if summary["step_run_counts"]:
+            print(f"[agent log] step_run_counts: {summary['step_run_counts']}", flush=True)
 
 
 def _resolve_run_dir(run_dir: str | Path, project_root: Path) -> Path:
