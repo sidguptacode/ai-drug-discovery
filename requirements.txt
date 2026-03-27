@@ -2,7 +2,7 @@
 numpy
 pandas
 scanpy
-stlearn==0.4.12
+stlearn
 matplotlib
 pyyaml
 python-dotenv>=1.0

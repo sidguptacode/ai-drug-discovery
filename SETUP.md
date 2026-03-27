@@ -39,6 +39,9 @@ install.packages(c("Seurat", "ggplot2", "patchwork", "dplyr", "yaml", "jsonlite"
 install.packages("harmony")
 install.packages("clustree")
 install.packages("enrichR")
+install.packages("hdf5r")
+install.packages('devtools')
+devtools::install_github('immunogenomics/presto')
 ```
 
 If you use Bioconductor for Seurat, follow the [Seurat installation guide](https://satijalab.org/seurat/articles/install.html).

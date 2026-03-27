@@ -13,22 +13,15 @@ suppressPackageStartupMessages({
   library(patchwork)
   library(dplyr)
   library(yaml)
-  library(jsonlite)
 })
 
 options(repos = c(CRAN = "https://cloud.r-project.org/"))
 
-cfg_path <- Sys.getenv("PIPELINE_STEP_CONFIG", "config.yml")
-if (grepl("\\.json$", cfg_path, ignore.case = TRUE)) {
-  cfg <- jsonlite::read_json(cfg_path, simplifyVector = FALSE)
-} else {
-  cfg <- yaml::read_yaml(cfg_path)
-}
-DATA_DIR    <- cfg$data_dir
-OUT_DIR     <- cfg$out_dir
-SAMPLES     <- if (is.list(cfg$samples)) unlist(cfg$samples) else cfg$samples
-SAMPLE_DIRS <- if (!is.null(cfg$sample_dirs)) cfg$sample_dirs else list()
-QC          <- cfg$qc
+cfg      <- yaml::read_yaml("/w/20251/cchin/ai-drug-discovery/config.yml")
+DATA_DIR <- cfg$data_dir
+OUT_DIR  <- cfg$out_dir
+SAMPLES  <- cfg$samples
+QC       <- cfg$qc
 
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 set.seed(42)
@@ -39,9 +32,8 @@ if (!is.null(QC$mt_cutoff)) cat(sprintf(" | MT cutoff: %.0f%%", QC$mt_cutoff))
 cat("\n")
 
 load_and_qc <- function(samp) {
-  samp_dir   <- if (!is.null(SAMPLE_DIRS[[samp]])) SAMPLE_DIRS[[samp]] else samp
-  h5_path    <- file.path(DATA_DIR, samp_dir, paste0(samp, "_filtered_feature_bc_matrix.h5"))
-  coord_path <- file.path(DATA_DIR, samp_dir, paste0(samp, "_tissue_positions_list.csv"))
+  h5_path    <- file.path(DATA_DIR, samp, paste0(samp, "_filtered_feature_bc_matrix.h5"))
+  coord_path <- file.path(DATA_DIR, samp, paste0(samp, "_tissue_positions_list.csv"))
 
   counts <- Read10X_h5(h5_path, use.names = TRUE, unique.features = TRUE)
   so     <- CreateSeuratObject(counts = counts, project = samp,
@@ -86,9 +78,16 @@ pdf(file.path(OUT_DIR, "step1_qc.pdf"), width = 14, height = 5)
 for (samp in SAMPLES) {
   so <- seurat_list[[samp]]
   df <- so@meta.data
-  p1 <- VlnPlot(so, features = c("nCount_RNA","nFeature_RNA","percent.mt"),
-                ncol = 3, pt.size = 0) &
-    theme(axis.title.x = element_blank())
+  # p1 <- VlnPlot(so, features = c("nCount_RNA","nFeature_RNA","percent.mt"),
+  #               ncol = 3, pt.size = 0) &
+  #   theme(axis.title.x = element_blank())
+  features <- c("nCount_RNA", "nFeature_RNA", "percent.mt")
+   vln_plots <- lapply(features, function(f) {
+     VlnPlot(so, features = f, pt.size = 0) +
+       theme(axis.title.x = element_blank())
+   })
+   p1 <- patchwork::wrap_plots(vln_plots, ncol = 3)
+
   p2 <- ggplot(df, aes(pxl_col, -pxl_row, colour = log10(nCount_RNA + 1))) +
     geom_point(size = 0.4) + scale_colour_viridis_c("log10(nCount)") +
     coord_fixed() + theme_bw() + labs(title = paste(samp, "- nCount"))
