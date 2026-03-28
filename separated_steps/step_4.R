@@ -28,7 +28,7 @@ try_library <- function(pkg) {
 
 has_enrichr <- try_library("enrichR")
 
-cfg     <- yaml::read_yaml("/scratch/baderlab/sgupta/ai-drug-discovery/config.yml")
+cfg     <- yaml::read_yaml("/scratch/baderlab/sgupta/workflows_march/mar9_ai_drug_discovery/config_dipg.yml")
 OUT_DIR <- cfg$out_dir
 ANNOT   <- cfg$annotation
 
@@ -73,41 +73,6 @@ write.csv(sig_markers, file.path(OUT_DIR, "step4_markers.csv"), row.names = FALS
 cat(sprintf("  Found %d significant markers across %d communities.\n",
             nrow(sig_markers), length(unique(sig_markers$cluster))))
 
-# ── CNS-preference label picker ───────────────────────────────────────────────
-# Prefers the best-ranked EnrichR term matching a CNS tissue region OR a
-# CNS-specific cell type. Falls back to the overall best hit with a
-# "[non-CNS]" prefix so ambiguous labels are visible in output.
-pick_cns_label <- function(db_df) {
-  if (nrow(db_df) == 0) return(NA_character_)
-
-  cns_regions <- paste(c(
-    "Brain", "Cortex", "Cerebellum", "Cerebellar", "Hippocampus",
-    "Spinal Cord", "Spinal", "\\bCNS\\b", "Brainstem", "Striatum",
-    "Thalamus", "Hypothalamus", "Midbrain", "\\bPons\\b", "Medulla",
-    "Olfactory", "Amygdala", "Prefrontal", "White Matter", "Grey Matter",
-    "Gray Matter", "Frontal Lobe", "Temporal Lobe", "Ventricle",
-    "Substantia Nigra", "Basal Ganglia", "Cerebrum"
-  ), collapse = "|")
-
-  cns_celltypes <- paste(c(
-    "Astrocyte", "Oligodendrocyte", "\\bOPC\\b", "Oligodendrocyte Precursor",
-    "Microglia", "\\bNeuron\\b", "\\bNeuronal\\b", "Neural Progenitor",
-    "Radial Glia", "\\bGlioblast\\b", "Ependymal", "Choroid Plexus",
-    "Bergmann", "Purkinje", "Granule Cell", "Motor Neuron", "Interneuron",
-    "Schwann", "\\bGlia\\b", "\\bGlial\\b", "Neuroepithelial", "Tanycyte",
-    "Pericyte"
-  ), collapse = "|")
-
-  cns_pattern <- paste(cns_regions, cns_celltypes, sep = "|")
-  cns_hits    <- db_df[grepl(cns_pattern, db_df$Term, ignore.case = TRUE), ]
-
-  if (nrow(cns_hits) > 0)
-    return(cns_hits %>% arrange(Adjusted.P.value) %>% slice_head(n = 1) %>% pull(Term))
-
-  best <- db_df %>% arrange(Adjusted.P.value) %>% slice_head(n = 1) %>% pull(Term)
-  paste0("[non-CNS] ", best)
-}
-
 # ── EnrichR annotation ────────────────────────────────────────────────────────
 all_communities  <- sort(unique(seurat_int$community))
 cell_type_labels <- setNames(all_communities, all_communities)
@@ -124,11 +89,12 @@ if (has_enrichr) {
         pull(gene)
       if (length(top_genes) < 5) next
       tryCatch({
-        res <- enrichr(top_genes, ANNOT$enrichr_dbs)
-        res <- lapply(res, function(df)
-          df[!grepl("Mus musculus|\\bMouse\\b|\\bmouse\\b", df$Term), ])
+        res      <- enrichr(top_genes, ANNOT$enrichr_dbs)
         comm_key <- as.character(comm)
-        top_hit  <- pick_cns_label(res[[ANNOT$primary_db]])
+        db_df    <- res[[ANNOT$primary_db]]
+        top_hit  <- if (nrow(db_df) > 0)
+          db_df %>% arrange(Adjusted.P.value) %>% slice_head(n = 1) %>% pull(Term)
+        else NA_character_
         cell_type_labels[comm_key] <- if (!is.na(top_hit)) top_hit else comm_key
         for (db in names(res))
           write.csv(res[[db]],

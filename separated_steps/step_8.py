@@ -26,7 +26,9 @@ except ImportError:
     print("ERROR: stlearn not installed. Run: pip install stlearn==0.4.12", file=sys.stderr)
     sys.exit(1)
 
-CONFIG_PATH = "/scratch/baderlab/sgupta/ai-drug-discovery/config.yml"
+_args = sys.argv[1:]
+CONFIG_PATH = _args[0] if _args else \
+    "/scratch/baderlab/sgupta/workflows_march/mar9_ai_drug_discovery/config_dipg.yml"
 with open(CONFIG_PATH) as f:
     cfg = yaml.safe_load(f)
 

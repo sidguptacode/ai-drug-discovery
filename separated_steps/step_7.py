@@ -17,7 +17,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-CONFIG_PATH = "/scratch/baderlab/sgupta/ai-drug-discovery/config.yml"
+CONFIG_PATH = "/scratch/baderlab/sgupta/workflows_march/mar9_ai_drug_discovery/config_dipg.yml"
 with open(CONFIG_PATH) as f:
     cfg = yaml.safe_load(f)
 
