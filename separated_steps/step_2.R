@@ -2,8 +2,13 @@
 # =============================================================================
 # step_2.R — Integration (SCTransform per sample + RPCA anchor integration)
 # Reads:  OUT_DIR/step1_seurat_list.rds
-# Writes: OUT_DIR/step2_seurat_integrated.rds
+# Writes: OUT_DIR/step2_part1_seurat_list.rds         (resume checkpoint)
+#         OUT_DIR/step2_part1_integration_features.rds (resume checkpoint)
+#         OUT_DIR/step2_seurat_integrated.rds
 #         OUT_DIR/step2_integration.pdf
+#
+# Usage:  Rscript step_2.R [config.yml]
+#         Falls back to config_dipg.yml if no argument given.
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -15,9 +20,6 @@ suppressPackageStartupMessages({
 
 options(repos = c(CRAN = "https://cloud.r-project.org/"))
 options(future.globals.maxSize = Inf)
-
-if (!requireNamespace("harmony", quietly = TRUE))
-  install.packages("harmony")
 
 ts <- function(msg) {
   cat(sprintf("  [%s] %s\n", format(Sys.time(), "%H:%M:%S"), msg))
@@ -41,58 +43,79 @@ cat(sprintf("  nfeatures=%d | n_pcs=%d | n_dims=%d\n",
 
 step1_path <- file.path(OUT_DIR, "step1_seurat_list.rds")
 if (!file.exists(step1_path)) stop("Missing: ", step1_path, "\n  Run step_1.R first.")
-cat("  Loading step1_seurat_list.rds...\n")
-seurat_list <- readRDS(step1_path)
-cat(sprintf("  Loaded %d samples.\n", length(seurat_list)))
 
-# ── Parallel workers for SCTransform ─────────────────────────────────────────
-n_workers <- as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", unset = NA))
-if (is.na(n_workers) || n_workers < 1L)
-  n_workers <- max(1L, parallel::detectCores(logical = FALSE) %/% 2L)
-cat(sprintf("  Parallel workers: %d\n", n_workers))
+# =============================================================================
+# Part 1: SCTransform + PrepSCTIntegration + PCA per sample
+# =============================================================================
+part1_list_ckpt <- file.path(OUT_DIR, "step2_part1_seurat_list.rds")
+part1_feat_ckpt <- file.path(OUT_DIR, "step2_part1_integration_features.rds")
 
-if (.Platform$OS.type == "unix") {
-  future::plan(future::multicore, workers = n_workers)
+if (file.exists(part1_list_ckpt) && file.exists(part1_feat_ckpt)) {
+  cat(sprintf("  [RESUME] Loading %s — skipping SCTransform/PCA.\n", part1_list_ckpt))
+  seurat_list          <- readRDS(part1_list_ckpt)
+  integration_features <- readRDS(part1_feat_ckpt)
+  cat(sprintf("  Loaded %d samples, %d integration features.\n",
+              length(seurat_list), length(integration_features)))
 } else {
-  future::plan(future::multisession, workers = n_workers)
+  cat("  Loading step1_seurat_list.rds...\n")
+  seurat_list <- readRDS(step1_path)
+  cat(sprintf("  Loaded %d samples.\n", length(seurat_list)))
+
+  n_workers <- as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", unset = NA))
+  if (is.na(n_workers) || n_workers < 1L)
+    n_workers <- max(1L, parallel::detectCores(logical = FALSE) %/% 2L)
+  cat(sprintf("  Parallel workers: %d\n", n_workers))
+  if (.Platform$OS.type == "unix") {
+    future::plan(future::multicore, workers = n_workers)
+  } else {
+    future::plan(future::multisession, workers = n_workers)
+  }
+
+  sct_flavor <- if (requireNamespace("glmGamPoi", quietly = TRUE)) "v2" else "v1"
+  cat(sprintf("  SCTransform flavor: %s\n", sct_flavor))
+
+  seurat_list <- lapply(seq_along(seurat_list), function(i) {
+    samp <- names(seurat_list)[i]
+    so   <- seurat_list[[i]]
+    cat(sprintf("    [%d/%d] SCTransform: %s (%d spots)...\n",
+                i, length(seurat_list), samp, ncol(so)))
+    SCTransform(so,
+                vst.flavor            = sct_flavor,
+                variable.features.n   = INTEG$n_features,
+                ncells                = min(ncol(so), 5000L),
+                vars.to.regress       = NULL,
+                return.only.var.genes = FALSE,
+                verbose               = FALSE)
+  })
+  names(seurat_list) <- SAMPLES
+
+  cat(sprintf("  Selecting %d integration features...\n", INTEG$n_features))
+  integration_features <- SelectIntegrationFeatures(
+    object.list = seurat_list, nfeatures = INTEG$n_features)
+
+  cat("  Running PrepSCTIntegration...\n")
+  seurat_list <- PrepSCTIntegration(
+    object.list = seurat_list, anchor.features = integration_features)
+
+  cat(sprintf("  Running PCA on each sample (npcs=%d)...\n", INTEG$n_dims))
+  seurat_list <- lapply(seurat_list, function(so)
+    RunPCA(so, npcs = INTEG$n_dims, verbose = FALSE))
+  names(seurat_list) <- SAMPLES
+
+  saveRDS(seurat_list,          part1_list_ckpt)
+  saveRDS(integration_features, part1_feat_ckpt)
+  cat("  Saved: step2_part1_seurat_list.rds\n")
+  cat("  Saved: step2_part1_integration_features.rds\n")
 }
 
-# Use multisession to avoid fork OOM; multicore would fork the large R process.
-# future::plan(future::multisession, workers = n_workers)
+# =============================================================================
+# Part 2: FindIntegrationAnchors + IntegrateData + PCA + UMAP + Neighbors
+# IMPORTANT: reset to sequential — FindIntegrationAnchors spawns its own
+# threads and deadlocks when run under a multicore future (8+ samples).
+# =============================================================================
+cat("  Resetting future plan to sequential for FindIntegrationAnchors...\n")
+future::plan(future::sequential)
 
-# ── SCTransform per sample ────────────────────────────────────────────────────
-sct_flavor <- if (requireNamespace("glmGamPoi", quietly = TRUE)) "v2" else "v1"
-cat(sprintf("  SCTransform flavor: %s\n", sct_flavor))
-
-seurat_list <- lapply(seq_along(seurat_list), function(i) {
-  samp <- names(seurat_list)[i]
-  so   <- seurat_list[[i]]
-  cat(sprintf("    [%d/%d] SCTransform: %s (%d spots)...\n",
-              i, length(seurat_list), samp, ncol(so)))
-  SCTransform(so,
-              vst.flavor            = sct_flavor,
-              variable.features.n   = INTEG$n_features,
-              ncells                = min(ncol(so), 5000L),
-              vars.to.regress       = NULL,
-              return.only.var.genes = FALSE,
-              verbose               = FALSE)
-})
-names(seurat_list) <- SAMPLES
-
-cat(sprintf("  Selecting %d integration features...\n", INTEG$n_features))
-integration_features <- SelectIntegrationFeatures(
-  object.list = seurat_list, nfeatures = INTEG$n_features)
-
-cat("  Running PrepSCTIntegration...\n")
-seurat_list <- PrepSCTIntegration(
-  object.list = seurat_list, anchor.features = integration_features)
-
-cat(sprintf("  Running PCA on each sample (npcs=%d)...\n", INTEG$n_dims))
-seurat_list <- lapply(seurat_list, function(so)
-  RunPCA(so, npcs = INTEG$n_dims, verbose = FALSE))
-names(seurat_list) <- SAMPLES
-
-# ── FindIntegrationAnchors + IntegrateData ────────────────────────────────────
 if (requireNamespace("pbapply", quietly = TRUE))
   pbapply::pboptions(type = "txt", char = "=")
 
@@ -119,7 +142,6 @@ seurat_int <- IntegrateData(
 ts(sprintf("IntegrateData done. Elapsed: %.1f min",
            as.numeric(difftime(Sys.time(), t0, units = "mins"))))
 
-# ── PCA + UMAP + Neighbors on integrated assay ────────────────────────────────
 DefaultAssay(seurat_int) <- "integrated"
 cat(sprintf("  Running PCA (npcs=%d)...\n", INTEG$n_pcs))
 seurat_int <- RunPCA(seurat_int, npcs = INTEG$n_pcs, verbose = FALSE)
@@ -136,7 +158,7 @@ tryCatch(
 )
 tryCatch(
   print(DimPlot(seurat_int, reduction = "umap", group.by = "sample", pt.size = 0.3) +
-          ggtitle("UMAP - by sample (batch check)") + theme_bw()),
+          ggtitle("UMAP — by sample (batch check)") + theme_bw()),
   error = function(e) message("  [WARN] DimPlot: ", e$message)
 )
 dev.off()

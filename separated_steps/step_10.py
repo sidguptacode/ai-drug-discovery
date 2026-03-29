@@ -23,11 +23,13 @@ with open(CONFIG_PATH, encoding="utf-8") as f:
     else:
         cfg = yaml.safe_load(f)
 
-OUT_DIR = cfg["out_dir"]
-SAMPLES = cfg["samples"]
-DATASET = cfg["dataset_name"]
+OUT_DIR        = cfg["out_dir"]
+SAMPLES        = cfg["samples"]
+DATASET        = cfg["dataset_name"]
+MIN_RECURRENCE = cfg.get("ranking", {}).get("min_recurrence", 2)
 
 print(f"====== step_10.py | Aggregate & rank LR pairs ======")
+print(f"  min_recurrence={MIN_RECURRENCE}")
 
 EMPTY_CCI_COLS = ["lr_pair","sender","receiver","cci_score","p_val","sample"]
 
@@ -64,6 +66,12 @@ ranked = (all_cci
     .reset_index()
     .sort_values(["n_samples","mean_cci_score"], ascending=[False,False])
     .reset_index(drop=True))
+
+n_before = len(ranked)
+ranked = ranked[ranked["n_samples"] >= MIN_RECURRENCE].reset_index(drop=True)
+print(f"  Recurrence filter (>= {MIN_RECURRENCE} samples): "
+      f"{n_before} -> {len(ranked)} pairs")
+
 ranked["rank"] = ranked.index + 1
 
 ranked.to_csv(os.path.join(OUT_DIR, "GROUND_TRUTH_lr_pairs_ranked.csv"), index=False)
