@@ -1,0 +1,85 @@
+# =============================================================================
+# config_ovarian2.yml — Dataset-specific parameters for ST LR pipeline
+# Dataset : GSE288483 — Ovarian cancer (8 Visium SD samples, 2 patients)
+# Data    : MTX format, all spatial files flat with {sample}_ prefix
+# Run     : Rscript step_1_pipeline.R config_ovarian2.yml
+#           python  step_2_pipeline.py config_ovarian2.yml
+# =============================================================================
+
+# ── Dataset identity ───────────────────────────────────────────────────────────
+dataset_name: "ovarian2_GSE288483"
+disease:      "ovarian_cancer"
+disease_type: "ovarian"   # selects ovarian-specific annotation label picker
+species:      "human"
+
+# ── Data format ───────────────────────────────────────────────────────────────
+# data_format:    "mtx"  → load {sample}_barcodes/features/matrix files
+# spatial_layout: "flat" → all spatial files are flat alongside MTX with same prefix
+data_format:    "mtx"
+spatial_layout: "flat"
+
+# ── Paths ──────────────────────────────────────────────────────────────────────
+data_dir: "/scratch/baderlab/sgupta/workflows_march/mar9_ai_drug_discovery/ovarian2_GSE288483_RAW"
+out_dir:  "/scratch/baderlab/sgupta/workflows_march/mar9_ai_drug_discovery/outputs_suzuki_separated"
+
+# ── Samples ───────────────────────────────────────────────────────────────────
+# Full file prefix (e.g. GSM8768679_Pt1-1_matrix.mtx, GSM8768679_Pt1-1_tissue_positions_list.csv)
+# Patient 1: 4 sections (Pt1-1 through Pt1-4)
+# Patient 2: 4 sections (Pt2-1 through Pt2-4)
+samples:
+- "GSM8768679_Pt1-1"
+- "GSM8768680_Pt1-2"
+- "GSM8768681_Pt1-3"
+- "GSM8768682_Pt1-4"
+- "GSM8768683_Pt2-1"
+- "GSM8768684_Pt2-2"
+- "GSM8768685_Pt2-3"
+- "GSM8768686_Pt2-4"
+
+# ── Step 1: QC ────────────────────────────────────────────────────────────────
+# For raw Visium data the in_tissue filter (tissue_positions_list) is applied
+# first; these thresholds are a secondary QC on the resulting on-tissue spots.
+qc:
+  ncount_min:   500       # minimum total UMI counts per spot
+  ncount_max:   100000    # maximum total UMI counts per spot
+  mt_cutoff:    25        # % mitochondrial reads cutoff
+
+# ── Step 2: Integration ───────────────────────────────────────────────────────
+integration:
+  n_features:   3000      # variable features for SCTransform + anchor selection
+  n_pcs:        50        # PCs computed
+  n_dims:       30        # PCs used for neighbour graph, UMAP
+
+# ── Step 3: Clustering ────────────────────────────────────────────────────────
+clustering:
+  resolutions: [0.1, 0.3, 0.5]
+  chosen_resolution: 0.3
+
+# ── Step 4: Annotation ────────────────────────────────────────────────────────
+annotation:
+  n_marker_genes:    50     # top N marker genes passed to EnrichR per cluster
+  min_pct:           0.1    # FindAllMarkers: min fraction of cells expressing gene
+  logfc_threshold:   0.25   # FindAllMarkers: minimum log2 fold-change
+  enrichr_dbs:
+    - "CellMarker_2024"
+    - "PanglaoDB_Augmented_2021"
+    - "Human_Gene_Atlas"
+  primary_db: "CellMarker_2024"
+
+# ── Step 7: Preprocessing (Python) ───────────────────────────────────────────
+preprocessing:
+  min_genes:           3       # minimum genes per spot (scanpy filter_cells)
+  min_cells:           100     # minimum cells expressing a gene (scanpy filter_genes)
+  normalize_target:    10000   # library size normalization target sum
+
+# ── Step 8: LR scoring ────────────────────────────────────────────────────────
+lr_scoring:
+  databases:    ["cellphonedb"]   # LR databases to load via stLearn
+  n_pairs:      1000              # permutation pairs for significance testing
+  min_spots:    3                 # minimum spots a LR pair must be expressed in
+  n_neighbors:  6                 # spatial neighbourhood size
+
+# ── Step 9: CCI ───────────────────────────────────────────────────────────────
+cci:
+  min_spots:            3     # minimum spots for CCI testing
+  significance_cutoff:  0.05  # p-value threshold for retaining interactions

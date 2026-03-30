@@ -31,6 +31,7 @@ if (grepl("\\.json$", cfg_path, ignore.case = TRUE)) {
 } else {
   cfg <- yaml::read_yaml(cfg_path)
 }
+cat(sprintf("Config path: %s", cfg_path))
 DATA_DIR <- cfg$data_dir
 OUT_DIR  <- cfg$out_dir
 SAMPLES  <- if (is.list(cfg$samples)) unlist(cfg$samples) else cfg$samples
@@ -163,5 +164,5 @@ for (samp in SAMPLES) {
 }
 dev.off()
 cat("  Saved: step1_qc.pdf\n")
-
+cat(sprintf("\n Output Dir: %s\n", OUT_DIR))
 cat(sprintf("\n====== step_1.R COMPLETE | %d samples ======\n", length(SAMPLES)))

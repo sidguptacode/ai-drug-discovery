@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=annotation_reflection_02
+#SBATCH --job-name=ov1_run01
 #SBATCH --nodelist=cpunode4
 #SBATCH --partition=cpunodes
 #SBATCH --cpus-per-task=16
@@ -23,10 +23,10 @@ fi
 source "$PROJECT_DIR/.venv/bin/activate"
 
 python agent_controller.py \
-    --message "Initialize a run named annotation_reflection_02 from config.yml, then run through the pipeline, evaluating and iterating based on the output of each step. \n\n
+    --message "Initialize a run named ov1_run01 from configs/config_ovarian1.yml, then run through the pipeline, evaluating and iterating based on the output of each step. \n\n
     Below is some additional context about the task and disease as well as guidelines to follow when reflecting and iterating on certain steps. \n 
     **Data Background: **\n
-    Diffuse Intrinsic Pontine Glioma (DIPG) in humans is an aggressive paediatric brain cancer arising in the brainstem, predominantly the pons. It carries no curative treatment options and a median survival of under one year. DIPG tumours are characterised by significant intratumoural cellular heterogeneity and a highly invasive phenotype. Tumour cells are known to actively interact with their surrounding tumour microenvironment (TME), which includes endothelial, neuronal, myeloid, and glial cell populations. These interactions are thought to drive disease progression and invasion. Understanding how DIPG tumour cells communicate with the TME through ligand-receptor (LR) signalling is a key step toward identifying novel therapeutic targets. \n\n
+    High-grade serous ovarian carcinoma (HGSOC) is the most common and lethal subtype of ovarian cancer, characterised by near-universal TP53 mutations, widespread copy number alterations (CNAs), and a high degree of intratumoural heterogeneity. HGSOC tumours are polyclonal, harbouring spatially segregated subclones with distinct CNA profiles associated with chemotherapy resistance and poor prognosis. Tumour cells actively interact with a complex tumour microenvironment (TME) comprising immune cells (T cells, macrophages, plasma cells), fibroblasts, endothelial cells, and epithelial populations. These interactions, mediated through ligand-receptor (LR) signalling, are thought to shape local immune infiltration patterns and drive disease progression. Understanding which LR pairs mediate communication between HGSOC cell populations is a key step toward identifying novel therapeutic targets. \n\n
     **Reflection guidlines: **: \n
     **Annotation reflection: **\n
 Do the labels make sense in the context of the **disease**, **data sample**, and **user’s target** (e.g. cell types expected in the tissue)? \n
@@ -37,3 +37,4 @@ Cross-check assigned labels against what is known from config: 'species' (labels
 - If any label contradicts dataset identity (wrong species, or tissue/body region that does not fit the disease or sample), do not treat the run as acceptable. Remediate (e.g. label_prefer_patterns / label_disqualify_patterns to align with species and context, or change enrichr_dbs), re-run from step 4, and document in 'runs/<run_id>/run_info.json'.
     "
     \ --model "gpt-4o-2024-08-06"
+    \ --instruction "ov1"

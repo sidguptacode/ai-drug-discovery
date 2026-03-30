@@ -445,7 +445,25 @@ def _default_instructions() -> str:
 
 **Your tools:** Initialize a run (pipeline_init_run), read or update step configs (pipeline_get_step_config, pipeline_set_step_config), run a step (pipeline_run_step; use force=true to re-run if outputs already exist), read step outputs for reflection (pipeline_read_outputs), and get data/folder metadata and per-step descriptions (pipeline_get_metadata). Call pipeline_get_metadata when you need to set or correct hyperparameters or understand what a step does.
 
-**Paths:** Under data_dir each sample has a folder named exactly <sample_id>. Required files per sample: {sample_id}_filtered_feature_bc_matrix.h5, {sample_id}_tissue_positions_list.csv, {sample_id}_scalefactors_json.json. Outputs go to out_dir (e.g. outputs/<run_id>). Step configs live in run_dir/step_1.json ... step_10.json."""
+**Paths:** Under data_dir each sample has a folder named exactly <sample_id>. Required files per sample: {sample_id}_filtered_feature_bc_matrix.h5, {sample_id}_tissue_positions_list.csv, {sample_id}_scalefactors_json.json. Outputs go to out_dir (e.g. outputs/<run_id>). Step configs live in run_dir/step_1.json ... step_10.json.
+
+**Autonomous operation:** This is a headless automated run with no user available. Never ask for confirmation or clarification — always make your best decision and continue executing if possible.
+"""
+
+def _ov1_instructions() -> str:
+    return """You are an agent that drives a 10-step spatial transcriptomics pipeline. The goal is to take raw spatial transcriptomics data (multiple samples), run QC and single-cell analysis, annotate cell types, then score ligand–receptor (LR) interactions and produce a ranked list of LR pairs as the final output.
+
+**Overall flow:** Steps 1–5 run in R (Seurat): load samples, QC filter, integrate across samples, cluster, and annotate cell types with marker genes and EnrichR. Step 5 exports cell-type metadata. Steps 6–10 run in Python (scanpy, stlearn): load per-sample data with that metadata, normalize and preprocess, run LR scoring in spatial neighbourhoods, run cell–cell interaction (CCI) testing, then aggregate and rank LR pairs across samples into a single ground-truth table. Steps must be run in order (each step depends on the previous).
+
+**Your tools:** Initialize a run (pipeline_init_run), read or update step configs (pipeline_get_step_config, pipeline_set_step_config), run a step (pipeline_run_step; use force=true to re-run if outputs already exist), read step outputs for reflection (pipeline_read_outputs), and get data/folder metadata and per-step descriptions (pipeline_get_metadata). Call pipeline_get_metadata when you need to set or correct hyperparameters or understand what a step does.
+
+**Paths:** Under data_dir each sample has a folder named exactly <sample_id>. Required files per sample: {sample_id}_matrix.mtx, {sample_id}_features.tsv, {sample_id}_barcodes.tsv. Outputs go to out_dir (e.g. outputs/<run_id>). Step configs live in run_dir/step_1.json ... step_10.json.
+
+**Autonomous operation:** This is a headless automated run with no user available. Never ask for confirmation or clarification — always make your best decision and continue executing if possible.
+"""
+
+def _suzuki_instructions() -> str:
+    return """TODO: COMPLETE THIS PROMPT"""
 
 
 def run_agent_loop(
@@ -552,6 +570,7 @@ def run_agent_loop(
 def main() -> None:
     parser = argparse.ArgumentParser(description="OpenAI Agent Pipeline Controller (Responses API, local run loop)")
     parser.add_argument("--message", "-m", required=True, help="User message for the agent")
+    parser.add_argument("--instruction", "-i", required=False, help="The system instruction set for the agent. Currently supports: 'dipg', 'ov1', 'suzuki'")
     parser.add_argument("--run-dir", default=None, help="Default run directory for tools (e.g. runs/run_01)")
     parser.add_argument("--model", default="gpt-4.1", help="Model name (default: gpt-4.1)")
     parser.add_argument("--max-tool-rounds", type=int, default=20, help="Max tool-call rounds")
@@ -561,13 +580,19 @@ def main() -> None:
     if not api_key:
         print("ERROR: Set OPENAI_API_KEY", file=sys.stderr)
         sys.exit(1)
-
     client = OpenAI()
     project_root = run_pipeline.get_project_root()
+    if args.instruction == "ov1":
+        instruction_prompt = _ov1_instructions()
+    elif args.instruction == "suzuki":
+        instruction_prompt = _suzuki_instructions()
+    else:
+        instruction_prompt = None
     final = run_agent_loop(
         client,
         model=args.model,
         message=args.message,
+        instructions=instruction_prompt,
         project_root=project_root,
         run_dir_default=args.run_dir,
         max_tool_rounds=args.max_tool_rounds,

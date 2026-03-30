@@ -12,7 +12,7 @@ species:      "human"   # used by `stLearn LR database loader
 #data_dir: "/w/20251/sarya/ai-drug-discovery/.data"
 #out_dir:  "/w/20251/sarya/ai-drug-discovery/outputs"
 data_dir: "/w/20251/cchin/ai-drug-discovery/data/st_data"
-out_dir: "/w/20251/cchin/ai-drug-discovery/outputs"
+out_dir: "/w/20252/cchin/ai-drug-discovery/outputs"
 
 # ── Samples ───────────────────────────────────────────────────────────────────
 # sample IDs used as labels throughout the pipeline (output filenames, metadata, etc.)

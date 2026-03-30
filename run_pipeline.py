@@ -27,7 +27,7 @@ except ImportError:
 # Per-step config schema (for seeding from full config; agent uses same paths)
 # -----------------------------------------------------------------------------
 STEP_CONFIG = {
-    1: (["data_dir", "out_dir", "samples", "sample_dirs"], ["qc"]),
+    1: (["data_dir", "out_dir", "samples", "sample_dirs", "data_format", "spatial_layout"], ["qc"]),
     2: (["out_dir", "samples"], ["integration"]),
     3: (["out_dir"], ["clustering"]),
     4: (["out_dir"], ["annotation"]),
@@ -178,7 +178,9 @@ def setup_run_dir_from_config(
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     run_id = run_dir.name
-    out_dir = (project_root / "outputs" / run_id).resolve()
+    #out_dir = (project_root / "outputs" / run_id).resolve()
+    outdir_root = Path(full_cfg["out_dir"])
+    out_dir = (outdir_root / run_id).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     out_dir_str = str(out_dir)
     for s in range(FIRST_STEP, LAST_STEP + 1):

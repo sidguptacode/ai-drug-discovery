@@ -1,0 +1,98 @@
+# =============================================================================
+# config_ovarian.yml — Dataset-specific parameters for ST LR pipeline
+# Dataset : GSE211956 — Ovarian cancer (8 Visium SD samples)
+# Data    : MTX format, spatial files in {sample}_spatial/spatial/
+# Run     : Rscript step_1_pipeline.R config_ovarian.yml
+#           python  step_2_pipeline.py config_ovarian.yml
+# =============================================================================
+
+# ── Dataset identity ───────────────────────────────────────────────────────────
+dataset_name: "ovarian_GSE211956"
+disease:      "ovarian_cancer"
+disease_type: "ovarian"   # selects ovarian-specific annotation label picker
+species:      "human"
+
+# ── Data format ───────────────────────────────────────────────────────────────
+# data_format:    "mtx"    → load {sample}_barcodes/features/matrix files
+# spatial_layout: "subdir" → spatial files in {sample}_spatial/spatial/
+data_format:    "mtx"
+spatial_layout: "flat"
+
+# ── Paths ──────────────────────────────────────────────────────────────────────
+# data_dir: "/scratch/baderlab/sgupta/workflows_march/mar9_ai_drug_discovery/ovarian_GSE211956_RAW"
+# out_dir:  "/scratch/baderlab/sgupta/workflows_march/mar9_ai_drug_discovery/outputs_ovarian_separated_steps"
+data_dir: "/w/20251/cchin/ai-drug-discovery/data/ovarian_v1"
+out_dir: "/w/20252/cchin/ai-drug-discovery/outputs"
+
+# ── Samples ───────────────────────────────────────────────────────────────────
+# Full file prefix used in GEO deposit (e.g. GSM6506110_SP1_matrix.mtx)
+# The 5 count*.txt files (Y2, Y3, Y5, MJ10, MJ11) are non-Visium and are excluded.
+samples:
+- "GSM6506110_SP1"
+- "GSM6506111_SP2"
+- "GSM6506112_SP3"
+- "GSM6506113_SP4"
+- "GSM6506114_SP5"
+- "GSM6506115_SP6"
+- "GSM6506116_SP7"
+- "GSM6506117_SP8"
+
+# ── Step 1: QC ────────────────────────────────────────────────────────────────
+# For raw Visium data the in_tissue filter (tissue_positions_list) is applied
+# first; these thresholds are a secondary QC on the resulting on-tissue spots.
+qc:
+  ncount_min:   500       # minimum total UMI counts per spot
+  ncount_max:   100000    # maximum total UMI counts per spot
+  mt_cutoff:    25        # % mitochondrial reads cutoff (ovarian tissue is viable)
+
+# ── Step 2: Integration ───────────────────────────────────────────────────────
+integration:
+  n_features:   3000      # variable features for SCTransform + anchor selection
+  n_pcs:        50        # PCs computed
+  n_dims:       30        # PCs used for neighbour graph, UMAP
+
+# ── Step 3: Clustering ────────────────────────────────────────────────────────
+clustering:
+  resolutions: [0.1, 0.3, 0.5]
+  chosen_resolution: 0.3
+
+# ── Step 4: Annotation ────────────────────────────────────────────────────────
+annotation:
+  n_marker_genes:    50     # top N marker genes passed to EnrichR per cluster
+  min_pct:           0.1    # FindAllMarkers: min fraction of cells expressing gene
+  logfc_threshold:   0.25   # FindAllMarkers: minimum log2 fold-change
+  enrichr_dbs:
+    - "CellMarker_2024"
+    - "PanglaoDB_Augmented_2021"
+    - "Human_Gene_Atlas"
+  primary_db: "CellMarker_2024"
+
+  # Label filter: preset (internal lists) or agent override (pipeline_set_step_config).
+  # Preset "CNS" (default): use internal disqualify and prefer lists (not exposed to agent).
+  # Preset "blank": no disqualify, no prefer, no prefix — raw best EnrichR term (for testing).
+  # label_filter_preset: "CNS"
+  label_filter_preset: "blank"   # no disqualify, no prefer, no prefix
+
+  # Optional overrides: when provided, replace internal lists for this run (regex list or string).
+  # label_disqualify_patterns: ["pattern1", "pattern2"]
+  # label_prefer_patterns: ["pattern1", "pattern2"]
+  # label_fallback_prefix: "optional prefix string"
+
+
+# ── Step 7: Preprocessing (Python) ───────────────────────────────────────────
+preprocessing:
+  min_genes:           3       # minimum genes per spot (scanpy filter_cells)
+  min_cells:           100     # minimum cells expressing a gene (scanpy filter_genes)
+  normalize_target:    10000   # library size normalization target sum
+
+# ── Step 8: LR scoring ────────────────────────────────────────────────────────
+lr_scoring:
+  databases:    ["cellphonedb"]   # LR databases to load via stLearn
+  n_pairs:      1000              # permutation pairs for significance testing
+  min_spots:    3                 # minimum spots a LR pair must be expressed in
+  n_neighbors:  6                 # spatial neighbourhood size
+
+# ── Step 9: CCI ───────────────────────────────────────────────────────────────
+cci:
+  min_spots:            3     # minimum spots for CCI testing
+  significance_cutoff:  0.05  # p-value threshold for retaining interactions
