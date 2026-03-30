@@ -438,29 +438,76 @@ def execute_tool(
     return json.dumps({"error": f"Unknown tool: {name}"})
 
 
-def _default_instructions() -> str:
-    return """You are an agent that drives a 10-step spatial transcriptomics pipeline. The goal is to take raw spatial transcriptomics data (multiple samples), run QC and single-cell analysis, annotate cell types, then score ligand–receptor (LR) interactions and produce a ranked list of LR pairs as the final output.
+_PATHS_BY_FORMAT = {
+    ("h5", "subdir"): (
+        "Each sample has its own subdirectory under data_dir "
+        "(name given by sample_dirs[sample_id] or sample_id itself). "
+        "Required files per sample: {sample_id}_filtered_feature_bc_matrix.h5, "
+        "{sample_id}_tissue_positions_list.csv, {sample_id}_scalefactors_json.json."
+    ),
+    ("mtx", "subdir"): (
+        "MTX/barcode/feature files sit directly under data_dir with a {sample_id}_ prefix. "
+        "Spatial files live in a {sample_id}_spatial/spatial/ subdirectory. "
+        "Required files per sample: {sample_id}_matrix.mtx, {sample_id}_barcodes.tsv, "
+        "{sample_id}_features.tsv, {sample_id}_spatial/spatial/tissue_positions_list.csv, "
+        "{sample_id}_spatial/spatial/scalefactors_json.json."
+    ),
+    ("mtx", "flat"): (
+        "All files for all samples are in a single flat directory under data_dir — "
+        "no per-sample subdirectories. Each file is distinguished by its {sample_id}_ prefix. "
+        "Required files per sample: {sample_id}_matrix.mtx, {sample_id}_barcodes.tsv, "
+        "{sample_id}_features.tsv, {sample_id}_tissue_positions_list.csv, "
+        "{sample_id}_scalefactors_json.json."
+    ),
+}
 
-**Overall flow:** Steps 1–5 run in R (Seurat): load samples, QC filter, integrate across samples, cluster, and annotate cell types with marker genes and EnrichR. Step 5 exports cell-type metadata. Steps 6–10 run in Python (scanpy, stlearn): load per-sample data with that metadata, normalize and preprocess, run LR scoring in spatial neighbourhoods, run cell–cell interaction (CCI) testing, then aggregate and rank LR pairs across samples into a single ground-truth table. Steps must be run in order (each step depends on the previous).
+_COMMON_FLOW = (
+    "You are an agent that drives a 10-step spatial transcriptomics pipeline. "
+    "The goal is to take raw spatial transcriptomics data (multiple samples), run QC and single-cell "
+    "analysis, annotate cell types, then score ligand–receptor (LR) interactions and produce a ranked "
+    "list of LR pairs as the final output.\n\n"
+    "**Overall flow:** Steps 1–5 run in R (Seurat): load samples, QC filter, integrate across samples, "
+    "cluster, and annotate cell types with marker genes and EnrichR. Step 5 exports cell-type metadata. "
+    "Steps 6–10 run in Python (scanpy, stlearn): load per-sample data with that metadata, normalize and "
+    "preprocess, run LR scoring in spatial neighbourhoods, run cell–cell interaction (CCI) testing, then "
+    "aggregate and rank LR pairs across samples into a single ground-truth table. Steps must be run in order "
+    "(each step depends on the previous).\n\n"
+    "**Your tools:** Initialize a run (pipeline_init_run), read or update step configs "
+    "(pipeline_get_step_config, pipeline_set_step_config), run a step (pipeline_run_step; use force=true to "
+    "re-run if outputs already exist), read step outputs for reflection (pipeline_read_outputs), and get "
+    "data/folder metadata and per-step descriptions (pipeline_get_metadata). Call pipeline_get_metadata when "
+    "you need to set or correct hyperparameters or understand what a step does.\n\n"
+)
 
-**Your tools:** Initialize a run (pipeline_init_run), read or update step configs (pipeline_get_step_config, pipeline_set_step_config), run a step (pipeline_run_step; use force=true to re-run if outputs already exist), read step outputs for reflection (pipeline_read_outputs), and get data/folder metadata and per-step descriptions (pipeline_get_metadata). Call pipeline_get_metadata when you need to set or correct hyperparameters or understand what a step does.
+_COMMON_SUFFIX = (
+    "Outputs go to out_dir (e.g. outputs/<run_id>). "
+    "Step configs live in run_dir/step_1.json ... step_10.json.\n\n"
+    "**Autonomous operation:** This is a headless automated run with no user available. "
+    "Never ask for confirmation or clarification — always make your best decision and continue executing if possible."
+)
 
-**Paths:** Under data_dir each sample has a folder named exactly <sample_id>. Required files per sample: {sample_id}_filtered_feature_bc_matrix.h5, {sample_id}_tissue_positions_list.csv, {sample_id}_scalefactors_json.json. Outputs go to out_dir (e.g. outputs/<run_id>). Step configs live in run_dir/step_1.json ... step_10.json.
 
-**Autonomous operation:** This is a headless automated run with no user available. Never ask for confirmation or clarification — always make your best decision and continue executing if possible.
-"""
+def _build_instructions(data_format: str = "h5", spatial_layout: str = "subdir") -> str:
+    key = (data_format, spatial_layout)
+    paths_desc = _PATHS_BY_FORMAT.get(key, _PATHS_BY_FORMAT[("h5", "subdir")])
+    return f"{_COMMON_FLOW}**Paths:** {paths_desc} {_COMMON_SUFFIX}"
 
-def _ov1_instructions() -> str:
-    return """You are an agent that drives a 10-step spatial transcriptomics pipeline. The goal is to take raw spatial transcriptomics data (multiple samples), run QC and single-cell analysis, annotate cell types, then score ligand–receptor (LR) interactions and produce a ranked list of LR pairs as the final output.
 
-**Overall flow:** Steps 1–5 run in R (Seurat): load samples, QC filter, integrate across samples, cluster, and annotate cell types with marker genes and EnrichR. Step 5 exports cell-type metadata. Steps 6–10 run in Python (scanpy, stlearn): load per-sample data with that metadata, normalize and preprocess, run LR scoring in spatial neighbourhoods, run cell–cell interaction (CCI) testing, then aggregate and rank LR pairs across samples into a single ground-truth table. Steps must be run in order (each step depends on the previous).
+def _instructions_from_run_dir(run_dir: str | None, project_root: Path) -> str:
+    """Read data_format/spatial_layout from step_1.json and return matching instructions."""
+    if run_dir is None:
+        return _build_instructions()
+    resolved = _resolve_run_dir(run_dir, project_root)
+    step1 = resolved / "step_1.json"
+    if not step1.exists():
+        return _build_instructions()
+    with open(step1, encoding="utf-8") as f:
+        cfg = json.load(f)
+    return _build_instructions(
+        data_format=cfg.get("data_format", "h5"),
+        spatial_layout=cfg.get("spatial_layout", "subdir"),
+    )
 
-**Your tools:** Initialize a run (pipeline_init_run), read or update step configs (pipeline_get_step_config, pipeline_set_step_config), run a step (pipeline_run_step; use force=true to re-run if outputs already exist), read step outputs for reflection (pipeline_read_outputs), and get data/folder metadata and per-step descriptions (pipeline_get_metadata). Call pipeline_get_metadata when you need to set or correct hyperparameters or understand what a step does.
-
-**Paths:** Under data_dir each sample has a folder named exactly <sample_id>. Required files per sample: {sample_id}_matrix.mtx, {sample_id}_features.tsv, {sample_id}_barcodes.tsv. Outputs go to out_dir (e.g. outputs/<run_id>). Step configs live in run_dir/step_1.json ... step_10.json.
-
-**Autonomous operation:** This is a headless automated run with no user available. Never ask for confirmation or clarification — always make your best decision and continue executing if possible.
-"""
 
 def _suzuki_instructions() -> str:
     return """TODO: COMPLETE THIS PROMPT"""
@@ -483,7 +530,7 @@ def run_agent_loop(
     if project_root is None:
         project_root = run_pipeline.get_project_root()
     project_root = Path(project_root)
-    instructions = instructions or _default_instructions()
+    instructions = instructions or _instructions_from_run_dir(run_dir_default, project_root)
 
     run_id = _run_id_from_run_dir(run_dir_default)
     logger = AgentLogger(project_root, run_id)
@@ -570,7 +617,7 @@ def run_agent_loop(
 def main() -> None:
     parser = argparse.ArgumentParser(description="OpenAI Agent Pipeline Controller (Responses API, local run loop)")
     parser.add_argument("--message", "-m", required=True, help="User message for the agent")
-    parser.add_argument("--instruction", "-i", required=False, help="The system instruction set for the agent. Currently supports: 'dipg', 'ov1', 'suzuki'")
+    parser.add_argument("--instruction", "-i", required=False, help="Override system instruction set. Currently supports: 'suzuki'. Otherwise auto-detected from run config (data_format + spatial_layout in step_1.json).")
     parser.add_argument("--run-dir", default=None, help="Default run directory for tools (e.g. runs/run_01)")
     parser.add_argument("--model", default="gpt-4.1", help="Model name (default: gpt-4.1)")
     parser.add_argument("--max-tool-rounds", type=int, default=20, help="Max tool-call rounds")
@@ -582,12 +629,11 @@ def main() -> None:
         sys.exit(1)
     client = OpenAI()
     project_root = run_pipeline.get_project_root()
-    if args.instruction == "ov1":
-        instruction_prompt = _ov1_instructions()
-    elif args.instruction == "suzuki":
+    if args.instruction == "suzuki":
         instruction_prompt = _suzuki_instructions()
     else:
-        instruction_prompt = None
+        # Auto-detect from run config (data_format + spatial_layout in step_1.json)
+        instruction_prompt = _instructions_from_run_dir(args.run_dir, project_root)
     final = run_agent_loop(
         client,
         model=args.model,

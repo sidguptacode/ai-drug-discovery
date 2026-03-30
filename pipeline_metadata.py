@@ -7,6 +7,74 @@ import json
 from pathlib import Path
 
 
+# Data format profiles: keyed by (data_format, spatial_layout).
+# data_format: "h5" | "mtx"
+# spatial_layout: "subdir" | "flat"  (only relevant for mtx)
+DATA_FORMAT_PROFILES = {
+    ("h5", "subdir"): {
+        "data_format": "h5",
+        "spatial_layout": "subdir",
+        "description": (
+            "10x Visium HDF5 format. Each sample lives in its own subdirectory under data_dir. "
+            "The subdirectory name is given by sample_dirs[sample_id] when it differs from sample_id."
+        ),
+        "required_files_per_sample": [
+            "{sample_id}_filtered_feature_bc_matrix.h5",
+            "{sample_id}_tissue_positions_list.csv",
+            "{sample_id}_scalefactors_json.json",
+        ],
+        "file_location": "DATA_DIR/<sample_dir>/<sample_id>_*",
+        "note": (
+            "Files are always named with the sample_id as prefix. "
+            "sample_dirs maps each sample_id to its subdirectory name when the two differ "
+            "(e.g. sample_id='GSM123_A1', directory='sample1')."
+        ),
+    },
+    ("mtx", "subdir"): {
+        "data_format": "mtx",
+        "spatial_layout": "subdir",
+        "description": (
+            "10x Visium MEX (MTX) format. MTX/barcode/feature files are directly under data_dir "
+            "with a {sample_id}_ prefix. Spatial files (tissue_positions_list.csv, "
+            "scalefactors_json.json) live in a {sample_id}_spatial/spatial/ subdirectory."
+        ),
+        "required_files_per_sample": [
+            "{sample_id}_matrix.mtx",
+            "{sample_id}_barcodes.tsv",
+            "{sample_id}_features.tsv",
+            "{sample_id}_spatial/spatial/tissue_positions_list.csv",
+            "{sample_id}_spatial/spatial/scalefactors_json.json",
+        ],
+        "file_location": "DATA_DIR/{sample_id}_* and DATA_DIR/{sample_id}_spatial/spatial/*",
+        "note": (
+            "All files are prefixed with sample_id. "
+            "Spatial metadata lives in a separate {sample_id}_spatial/spatial/ directory."
+        ),
+    },
+    ("mtx", "flat"): {
+        "data_format": "mtx",
+        "spatial_layout": "flat",
+        "description": (
+            "10x Visium MEX (MTX) format, flat layout. All files for all samples live directly "
+            "under data_dir with a {sample_id}_ prefix — no per-sample subdirectories. "
+            "Spatial files also have the {sample_id}_ prefix at the same level."
+        ),
+        "required_files_per_sample": [
+            "{sample_id}_matrix.mtx",
+            "{sample_id}_barcodes.tsv",
+            "{sample_id}_features.tsv",
+            "{sample_id}_tissue_positions_list.csv",
+            "{sample_id}_scalefactors_json.json",
+        ],
+        "file_location": "DATA_DIR/{sample_id}_*  (all files flat in one directory)",
+        "note": (
+            "All samples share a single flat directory. "
+            "Each file is distinguished by its {sample_id}_ prefix."
+        ),
+    },
+}
+
+
 # Output files per step (for metadata description only)
 OUTPUT_LAYOUT = {
     1: ["step1_seurat_list.rds", "step1_qc.pdf"],
@@ -137,21 +205,37 @@ def _run_dir_established(run_dir: Path) -> bool:
     return True
 
 
+def _get_data_format_profile(run_dir: Path | None) -> dict:
+    """Return the DATA_FORMAT_PROFILES entry for this run, defaulting to h5/subdir."""
+    data_format = "h5"
+    spatial_layout = "subdir"
+    if run_dir is not None:
+        cfg = _load_step_config(run_dir, 1)
+        data_format = cfg.get("data_format", "h5")
+        spatial_layout = cfg.get("spatial_layout", "subdir")
+    key = (data_format, spatial_layout)
+    return DATA_FORMAT_PROFILES.get(key, DATA_FORMAT_PROFILES[("h5", "subdir")])
+
+
 def get_pipeline_metadata(run_dir: Path | str | None = None) -> dict:
     """
     Return dataset and folder layout and per-step parameter documentation.
     If run_dir is provided, include: which run dir it is, whether it is established,
     last completed step (from last_step.txt), and current out_dir/samples when established.
+    The data_folder_layout section reflects the data_format and spatial_layout configured
+    for the run (from step_1.json), defaulting to h5/subdir if not set.
     """
+    resolved_run_dir = Path(run_dir).resolve() if run_dir is not None else None
+    fmt_profile = _get_data_format_profile(resolved_run_dir)
+
     out = {
         "data_folder_layout": {
-            "description": "data_dir is the root. Each sample has its own subdirectory. The subdirectory name is given by sample_dirs[sample_id] if present, otherwise defaults to the sample_id itself.",
-            "required_files_per_sample": [
-                "{sample_id}_filtered_feature_bc_matrix.h5",
-                "{sample_id}_tissue_positions_list.csv",
-                "{sample_id}_scalefactors_json.json",
-            ],
-            "note": "Files are always named with the sample_id as prefix. sample_dirs maps each sample_id to its subdirectory name when the two differ (e.g. sample_id='GSM123_A1', directory='sample1').",
+            "description": f"data_dir is the root. {fmt_profile['description']}",
+            "data_format": fmt_profile["data_format"],
+            "spatial_layout": fmt_profile["spatial_layout"],
+            "required_files_per_sample": fmt_profile["required_files_per_sample"],
+            "file_location": fmt_profile["file_location"],
+            "note": fmt_profile["note"],
         },
         "output_folder_layout": {
             "description": "out_dir is set per run (e.g. outputs/<run_id>). Steps write the following files:",
@@ -160,8 +244,8 @@ def get_pipeline_metadata(run_dir: Path | str | None = None) -> dict:
         "per_step_parameters": STEP_PARAMS,
         "step_config_location": "Each step reads config from run_dir/step_{step}.json. Edit these JSON files to change hyperparameters.",
     }
-    if run_dir is not None:
-        run_dir = Path(run_dir).resolve()
+    if resolved_run_dir is not None:
+        run_dir = resolved_run_dir
         run_id = run_dir.name or "default"
         established = _run_dir_established(run_dir)
         last_completed_step = _read_last_step(run_dir) if run_dir.is_dir() else None
