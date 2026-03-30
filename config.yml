@@ -58,6 +58,24 @@ annotation:
     - "Human_Gene_Atlas"
   primary_db: "CellMarker_2024"
 
+  # Disease marker prior (scripts/build_step4_disease_prior.py): cap genes; optional agent context.
+  # Tissues / cell types: set by controller agent (here or merged config), or disease_prior_context_json.
+  disease_prior_max_genes: 100
+  disease_prior_tissues:
+    - brain
+    - brainstem
+  disease_prior_cell_types:
+    - astrocyte
+    - oligodendrocyte
+    - microglia
+    - neuron
+  # Optional: path under out_dir or repo (see skill); JSON: { "tissues": [], "cell_types": [], "extra_genes": [] }
+  # disease_prior_context_json: "step4_disease_prior_context.json"
+  # Optional extra HGNC symbols merged after Open Targets associations:
+  # disease_prior_extra_genes: [ "GFAP", "OLIG2" ]
+  # Minimum genes per cluster to query EnrichR (fallback uses unfiltered markers when prior omits a cluster).
+  enrichr_min_genes: 5
+
   # Label filter: preset or agent override (pipeline_set_step_config).
   # Preset "blank": no disqualify, no prefer, no prefix — raw best EnrichR term.
   label_filter_preset: "blank"

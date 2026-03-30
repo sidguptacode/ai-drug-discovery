@@ -12,8 +12,16 @@ Before running or changing the pipeline, read the following documents (from this
 1. [pipeline_overview.md](pipeline_overview.md)
 2. [step_specs.md](step_specs.md)
 3. [reflection_guidelines.md](reflection_guidelines.md)
+4. [adjudication_artifacts.md](adjudication_artifacts.md) — when performing or reviewing Step 4b (annotation adjudication).
 
-These describe the pipeline structure, step definitions, and how to reason about outputs.
+Items 1–3 describe the pipeline structure, step definitions, and how to reason about outputs. Item 4 defines adjudication CSV/JSON schemas and validation.
+
+**Disease prior (Step 4) — controller agent obligation:** `scripts/build_step4_disease_prior.py` does **not** infer primary tissues/organs or canonical cell types (no LLM for that). The **controller agent** must supply them before or when running step 4, using either:
+
+- **`annotation.disease_prior_tissues`** and **`annotation.disease_prior_cell_types`** in merged YAML (`runs/<run_id>/config_overrides.yml` for run-specific values), and/or
+- **`annotation.disease_prior_context_json`** pointing to a JSON file (path relative to `out_dir` or the config directory, or absolute). Shape: `tissues`, `cell_types`, optional `extra_genes` — see [disease_prior_context.example.json](disease_prior_context.example.json).
+
+Optional **`annotation.disease_prior_extra_genes`** lists HGNC symbols merged after Open Targets associations. The written **`step4_disease_marker_prior.json`** echoes tissues/cell types for audit; **`genes`** still drive step 4 filtering.
 
 ## Static files vs run-specific edits
 
@@ -73,6 +81,7 @@ This SSH’s to `sarya@comps0`, then runs `srun --partition gpunodes -c 2 --mem=
 - Step 2 — Integration
 - Step 3 — Clustering
 - Step 4 — Annotation
+- Step 4b — Annotation adjudication (optional, agent-driven; see below)
 - Step 5 — Export
 - Step 6 — Load samples (Python)
 - Step 7 — Preprocess
@@ -83,6 +92,24 @@ This SSH’s to `sarya@comps0`, then runs `srun --partition gpunodes -c 2 --mem=
 After each step, check outputs and decide whether to proceed or re-run (see Execution loop).
 
 **Note**: `run_pipeline.sh` exists only to print this workflow; it exits with an error and must not be used to execute all steps in sequence.
+
+### Step 4b — Annotation adjudication (optional)
+
+Canonical **step 4** (`separated_steps/step_4.R`) is unchanged. When **annotation adjudication** is enabled for a run, the agent performs a **post–step 4, pre–step 5** pass that:
+
+- Collates top EnrichR candidates per cluster from all `step4_enrichr_<community>_<db>.csv` files plus dataset identity from merged config (`species`, `disease`, `dataset_name`).
+- Applies **3-tier** label reasoning (see [step_specs.md](step_specs.md) Step 4b and [reflection_guidelines.md](reflection_guidelines.md) Checkpoint 2).
+- Writes auditable artifacts under **`outputs/<run_id>/`**:
+  - `step4_adjudication_labels.csv` — per-cluster overrides and metadata.
+  - `step4_adjudication_report.json` — evidence, tier, rationale, per-cluster `override_applied` (which clusters step 5 will relabel), `needs_review`, and audit fields.
+
+**Propagation**: If `step4_adjudication_labels.csv` exists and rows have `override_applied=true`, **step 5** applies those labels to `cell_type_label` before writing `cell_type_metadata.csv` and `seurat_integrated.rds`, so steps 6–10 use the effective labels. See [adjudication_artifacts.md](adjudication_artifacts.md) for schemas and validation.
+
+**When mandatory**: If the run enables adjudication (document in `runs/<run_id>/run_info.json`), the agent must complete Step 4b and Checkpoint 2 adjudication checks before running step 5.
+
+**Audit**: Record model id / prompt version in `step4_adjudication_report.json` when an LLM is used; keep inputs (top-k terms) reproducible from saved CSVs.
+
+**Validation helper (non-substitute for judgment)**: After writing adjudication files, run `scripts/validate_step4b_artifacts.py --config <merged_or_base_config>` (or `run_step4b_validate.sh` from repo root) to check CSV/JSON consistency and required fields. Optional: `--forbid-regex` for disallowed label patterns; `--require-approval` if you use a manual gate file `step4_adjudication_approved.flag` in `OUT_DIR`. The validator does not pick labels.
 
 ### Run ID and logging
 
@@ -117,7 +144,7 @@ Do not run all steps in a row. For each step:
 2. Read the pipeline documentation (overview, step_specs, reflection_guidelines) as needed. **Before any reflection**, read **dataset identity** from the effective config (merged config when using `PIPELINE_RUN_ID`, else `config.yml`): `species`, `disease`, `dataset_name`.
 3. Run **one** step via comps0 with that run’s config: `PIPELINE_RUN_ID=<run_id> bash scripts/run_on_comps0.sh run_step_N.sh`. That step’s output is written to `runs/<run_id>/logs/step_N.log`.
 4. Inspect that step’s outputs in `outputs/<run_id>/` (when using `PIPELINE_RUN_ID`) or `out_dir` from config, and step log in `runs/<run_id>/logs/step_N.log`.
-5. **Reflection (mandatory)** at the relevant checkpoint (after 1–2, after 4, after 8–10): Open [reflection_guidelines.md](reflection_guidelines.md) and perform **every** check for that checkpoint. At Checkpoint 2, ensure annotation labels are **consistent with dataset identity** (species and, where applicable, tissue/region implied by disease or sample); if any label contradicts that, remediate and re-run step 4 before proceeding.
+5. **Reflection (mandatory)** at the relevant checkpoint (after 1–2, after 4, after 8–10): Open [reflection_guidelines.md](reflection_guidelines.md) and perform **every** check for that checkpoint. At Checkpoint 2, ensure annotation labels are **consistent with dataset identity** (species and, where applicable, tissue/region implied by disease or sample); if adjudication is used, complete adjudication review (tier, `needs_review`, overrides) before step 5. If any label contradicts dataset identity, remediate (config + re-run step 4, or revised adjudication artifacts) before proceeding.
 6. If all checkpoint checks pass, proceed to the **next** step. If any check fails, apply **run-specific** changes in `runs/<run_id>/config_overrides.yml` (e.g. annotation filters), or shared code changes in `separated_steps/*`; do not edit `config.yml` for run-specific tuning. Re-run the relevant step(s) with `PIPELINE_RUN_ID=<run_id>` and do not advance until the re-run passes reflection. Update `runs/<run_id>/run_info.json` with `steps_completed`, `notes`, and optionally a short `reflection_outcome` per checkpoint (e.g. `passed`, `action`, `reason`).
 7. Repeat: run one step → check outputs → perform full reflection for that checkpoint → next step or re-run. Never batch-run the full pipeline without evaluation between steps.
 
@@ -132,3 +159,4 @@ Do not run all steps in a row. For each step:
 - Step-by-step specs and required outputs: [step_specs.md](step_specs.md)
 - Pipeline flow and key steps: [pipeline_overview.md](pipeline_overview.md)
 - Reflection checkpoints: [reflection_guidelines.md](reflection_guidelines.md)
+- Adjudication artifact schemas and validation: [adjudication_artifacts.md](adjudication_artifacts.md)

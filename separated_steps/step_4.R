@@ -3,7 +3,12 @@
 # step_4.R — Marker genes + EnrichR cell-type annotation
 # Reads:  OUT_DIR/step3_seurat_clustered.rds
 # Writes: OUT_DIR/step4_seurat_annotated.rds
-#         OUT_DIR/step4_markers.csv
+#         OUT_DIR/step4_markers.csv          (full FindAllMarkers; never prior-filtered)
+#         OUT_DIR/step4_filtered_markers.csv (prior-filtered rows only; audit; EnrichR may use
+#           unfiltered markers per cluster when the prior matches no genes in that cluster)
+#         OUT_DIR/step4_enrichr_marker_source.csv — per cluster: prior_filtered vs unfiltered_fallback
+#         OUT_DIR/step4_disease_marker_prior.json — built before this step by
+#           scripts/build_step4_disease_prior.py (Open Targets associations); optional hand-curate.
 #         OUT_DIR/step4_enrichr_<community>_<db>.csv
 #         OUT_DIR/step4_annotation.pdf
 #         OUT_DIR/step4_annotation_scores.csv
@@ -52,11 +57,13 @@ cat(sprintf("  %d spots | communities: %s\n",
             ncol(seurat_int), paste(sort(unique(seurat_int$community)), collapse=" ")))
 
 markers_path <- file.path(OUT_DIR, "step4_markers.csv")
+markers_filtered_path <- file.path(OUT_DIR, "step4_filtered_markers.csv")
+
 if (file.exists(markers_path)) {
   cat("  Resuming: step4_markers.csv found, skipping FindAllMarkers.\n")
-  sig_markers <- read.csv(markers_path)
+  markers_unfiltered <- read.csv(markers_path, stringsAsFactors = FALSE)
   cat(sprintf("  Loaded %d markers across %d communities.\n",
-              nrow(sig_markers), length(unique(sig_markers$cluster))))
+              nrow(markers_unfiltered), length(unique(markers_unfiltered$cluster))))
 } else {
   # Switch to RNA assay; JoinLayers collapses per-sample layers so Wilcoxon can
   # run across all spots. NormalizeData creates the data layer (absent when
@@ -80,13 +87,68 @@ if (file.exists(markers_path)) {
   if (nrow(all_markers) == 0 || !"p_val_adj" %in% colnames(all_markers))
     stop("FindAllMarkers returned no results.")
 
-  sig_markers <- all_markers %>%
+  markers_unfiltered <- all_markers %>%
     filter(p_val_adj < 0.05) %>%
     arrange(cluster, desc(avg_log2FC))
-  write.csv(sig_markers, markers_path, row.names = FALSE)
+  write.csv(markers_unfiltered, markers_path, row.names = FALSE)
   cat(sprintf("  Found %d significant markers across %d communities.\n",
-              nrow(sig_markers), length(unique(sig_markers$cluster))))
+              nrow(markers_unfiltered), length(unique(markers_unfiltered$cluster))))
 }
+
+# ── Prior-filtered markers (EnrichR, collation, DotPlot, Seurat labels) ───────
+load_step4_prior_genes <- function(path) {
+  if (!file.exists(path)) return(character(0))
+  doc <- tryCatch(
+    jsonlite::read_json(path, simplifyVector = TRUE),
+    error = function(e) {
+      warning("Could not read prior JSON: ", e$message); NULL
+    }
+  )
+  if (is.null(doc)) return(character(0))
+  g <- doc$genes
+  if (is.null(g)) return(character(0))
+  g <- unique(toupper(trimws(as.character(g))))
+  g[nzchar(g)]
+}
+
+prior_path <- file.path(OUT_DIR, "step4_disease_marker_prior.json")
+if (!is.null(ANNOT$disease_marker_prior_json)) {
+  p <- trimws(as.character(ANNOT$disease_marker_prior_json)[1])
+  if (nzchar(p))
+    prior_path <- if (startsWith(p, "/")) p else file.path(OUT_DIR, p)
+}
+
+prior_genes <- load_step4_prior_genes(prior_path)
+if (length(prior_genes) > 0) {
+  gene_u <- toupper(as.character(markers_unfiltered$gene))
+  sig_markers <- markers_unfiltered[gene_u %in% prior_genes, , drop = FALSE]
+  cat(sprintf("  Disease prior (%s): %d gene symbols -> %d / %d marker rows (prior-filtered).\n",
+              basename(prior_path), length(prior_genes),
+              nrow(sig_markers), nrow(markers_unfiltered)))
+  if (nrow(sig_markers) == 0)
+    cat("  Disease prior: no marker rows matched the prior; all clusters will use unfiltered markers for EnrichR (per-cluster fallback).\n")
+} else {
+  sig_markers <- markers_unfiltered
+  cat("  Disease prior: no usable gene list (missing, empty, or invalid JSON); ",
+      "using all marker rows for EnrichR.\n", sep = "")
+}
+write.csv(sig_markers, markers_filtered_path, row.names = FALSE)
+cat(sprintf("  Saved: %s\n", basename(markers_filtered_path)))
+
+# Rows to use for EnrichR per cluster: prior-filtered if any rows exist for that cluster, else unfiltered
+markers_for_cluster <- function(comm, sig_tbl, unf_tbl) {
+  comm <- as.character(comm)
+  s <- sig_tbl %>% filter(cluster == comm)
+  if (nrow(s) > 0) return(s)
+  unf_tbl %>% filter(cluster == comm)
+}
+
+cluster_has_prior_rows <- function(comm, sig_tbl) {
+  comm <- as.character(comm)
+  nrow(sig_tbl %>% filter(cluster == comm)) > 0
+}
+
+enrichr_min_genes <- if (!is.null(ANNOT$enrichr_min_genes)) as.integer(ANNOT$enrichr_min_genes)[1] else 5L
 
 # Coerce config value to character vector (handles JSON list or YAML vector)
 config_char_vec <- function(x) {
@@ -135,15 +197,30 @@ annotation_adj_pvalue <- setNames(rep(NA_real_, length(all_communities)), all_co
 
 if (has_enrichr) {
   cat(sprintf("  Querying EnrichR: %s\n", paste(ANNOT$enrichr_dbs, collapse=", ")))
+  enrichr_source_rows <- list()
   tryCatch({
     setEnrichrSite("Enrichr")
-    for (comm in sort(unique(sig_markers$cluster))) {
-      top_genes <- sig_markers %>%
-        filter(cluster == comm) %>%
+    comm_list <- sort(unique(as.character(seurat_int$community)))
+    for (comm in comm_list) {
+      m_cl <- markers_for_cluster(comm, sig_markers, markers_unfiltered)
+      if (length(prior_genes) == 0L) {
+        src <- "no_prior_all_markers"
+      } else if (cluster_has_prior_rows(comm, sig_markers)) {
+        src <- "prior_filtered"
+      } else {
+        src <- "unfiltered_fallback"
+      }
+      top_genes <- m_cl %>%
         arrange(desc(avg_log2FC)) %>%
         slice_head(n = ANNOT$n_marker_genes) %>%
         pull(gene)
-      if (length(top_genes) < 5) next
+      enrichr_source_rows[[length(enrichr_source_rows) + 1L]] <- data.frame(
+        cluster = as.character(comm),
+        enrichr_marker_source = src,
+        n_genes_for_enrichr = length(top_genes),
+        stringsAsFactors = FALSE
+      )
+      if (length(top_genes) < enrichr_min_genes) next
       tryCatch({
         res <- enrichr(top_genes, ANNOT$enrichr_dbs)
         if (!is.null(disqualify_regex))
@@ -159,6 +236,12 @@ if (has_enrichr) {
                                                gsub("[^A-Za-z0-9]","_",db))),
                     row.names = FALSE)
       }, error = function(e) cat(sprintf("    [WARN] EnrichR %s: %s\n", comm, e$message)))
+    }
+    if (length(enrichr_source_rows) > 0) {
+      write.csv(bind_rows(enrichr_source_rows),
+                file.path(OUT_DIR, "step4_enrichr_marker_source.csv"),
+                row.names = FALSE)
+      cat(sprintf("  Saved: step4_enrichr_marker_source.csv\n"))
     }
     cat("\n  Labels (review step4_enrichr_*.csv before proceeding):\n")
     for (comm in names(cell_type_labels))
@@ -199,10 +282,102 @@ annotation_scores_df <- data.frame(
 write.csv(annotation_scores_df, file.path(OUT_DIR, "step4_annotation_scores.csv"), row.names = FALSE)
 cat(sprintf("\n  Saved: step4_annotation_scores.csv\n"))
 
+# ── C1 collation JSON (markers + top EnrichR labels) ─────────────────────────
+parse_overlap_num <- function(x) {
+  if (is.null(x) || is.na(x) || !nzchar(as.character(x))) return(NA_real_)
+  parts <- strsplit(as.character(x), "/", fixed = TRUE)[[1]]
+  as.numeric(parts[1])
+}
+
+build_cluster_collation <- function(cluster_id = "C1",
+                                    marker_top_n = 15,
+                                    label_top_n = 2) {
+  cluster_markers <- markers_for_cluster(cluster_id, sig_markers, markers_unfiltered) %>%
+    arrange(desc(avg_log2FC), p_val_adj)
+  if (nrow(cluster_markers) == 0) {
+    return(list(
+      cluster = cluster_id,
+      error = sprintf("No markers found for cluster %s", cluster_id)
+    ))
+  }
+
+  key_markers <- cluster_markers %>%
+    slice_head(n = marker_top_n) %>%
+    transmute(
+      gene = as.character(gene),
+      avg_log2FC = as.numeric(avg_log2FC),
+      p_val_adj = as.numeric(p_val_adj)
+    )
+
+  top_marker_genes <- unique(as.character((cluster_markers %>% slice_head(n = 30))$gene))
+  db_list <- as.character(unlist(ANNOT$enrichr_dbs))
+  top_labels <- list()
+  evidence_genes_all <- character(0)
+
+  for (db in db_list) {
+    db_stub <- gsub("[^A-Za-z0-9]", "_", db)
+    db_path <- file.path(OUT_DIR, sprintf("step4_enrichr_%s_%s.csv", cluster_id, db_stub))
+    if (!file.exists(db_path)) {
+      top_labels[[db]] <- list()
+      next
+    }
+    db_df <- read.csv(db_path, stringsAsFactors = FALSE, check.names = FALSE)
+    if (nrow(db_df) == 0 || !all(c("Term", "Adjusted.P.value", "Combined.Score", "Genes", "Overlap") %in% colnames(db_df))) {
+      top_labels[[db]] <- list()
+      next
+    }
+    db_df <- db_df %>% arrange(Adjusted.P.value, desc(Combined.Score))
+    top_df <- db_df %>% slice_head(n = label_top_n)
+    labels_this_db <- lapply(seq_len(nrow(top_df)), function(i) {
+      row <- top_df[i, , drop = FALSE]
+      genes <- strsplit(as.character(row$Genes), ";", fixed = TRUE)[[1]]
+      genes <- trimws(genes)
+      genes <- genes[nzchar(genes)]
+      evidence_genes_all <<- c(evidence_genes_all, genes)
+      list(
+        label = as.character(row$Term),
+        adjusted_p_value = as.numeric(row$Adjusted.P.value),
+        combined_score = as.numeric(row$Combined.Score),
+        overlap = as.character(row$Overlap),
+        overlap_count = parse_overlap_num(row$Overlap),
+        marker_evidence_genes = unname(genes)
+      )
+    })
+    top_labels[[db]] <- labels_this_db
+  }
+
+  recurrent_df <- data.frame(
+    gene = names(sort(table(evidence_genes_all), decreasing = TRUE)),
+    count_across_top_labels = as.integer(sort(table(evidence_genes_all), decreasing = TRUE)),
+    stringsAsFactors = FALSE
+  )
+  recurrent_df <- recurrent_df %>% filter(count_across_top_labels >= 2)
+  recurrent_and_top_markers <- recurrent_df %>% filter(gene %in% top_marker_genes)
+
+  list(
+    cluster = cluster_id,
+    key_marker_genes = key_markers,
+    top_candidate_labels_by_database = top_labels,
+    markers_mainly_driving_label_assignment = list(
+      recurrent_across_top_labels = recurrent_df,
+      recurrent_and_also_top_C1_markers = recurrent_and_top_markers
+    )
+  )
+}
+
+c1_collation <- build_cluster_collation(cluster_id = "C1", marker_top_n = 15, label_top_n = 2)
+c1_collation_path <- file.path(OUT_DIR, "step4_c1_collation.json")
+jsonlite::write_json(c1_collation, c1_collation_path, pretty = TRUE, auto_unbox = TRUE, na = "null")
+cat(sprintf("  Saved: %s\n", basename(c1_collation_path)))
+
 seurat_int$cell_type_label <- unname(cell_type_labels[seurat_int$community])
 
-top5       <- sig_markers %>% group_by(cluster) %>%
-  slice_max(order_by = avg_log2FC, n = 5) %>% ungroup()
+top5 <- bind_rows(lapply(sort(unique(as.character(seurat_int$community))), function(cx) {
+  markers_for_cluster(cx, sig_markers, markers_unfiltered) %>%
+    group_by(cluster) %>%
+    slice_max(order_by = avg_log2FC, n = 5) %>%
+    ungroup()
+}))
 plot_genes <- unique(top5$gene)
 
 pdf(file.path(OUT_DIR, "step4_annotation.pdf"),

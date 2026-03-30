@@ -7,7 +7,7 @@ Transform **raw spatial transcriptomics data** (Visium-style: per-sample H5 + ti
 ## Data flow
 
 1. **.data** — Per-sample folders with `*_filtered_feature_bc_matrix.h5`, `*_tissue_positions_list.csv`, `*_scalefactors_json.json`.
-2. **R pipeline (steps 1–5)** — QC → integration → clustering → annotation → export of `cell_type_metadata.csv` and integrated Seurat object.
+2. **R pipeline (steps 1–5)** — QC → integration → clustering → annotation → optional **Step 4b** adjudication artifacts → export of `cell_type_metadata.csv` and integrated Seurat object. If `step4_adjudication_labels.csv` is present, **step 5** applies overrides to `cell_type_label` before export.
 3. **Python pipeline (steps 6–10)** — Load samples with cell-type metadata → preprocess → LR scoring (stlearn) → CCI → aggregate and rank LR pairs.
 
 Final outputs of interest: `GROUND_TRUTH_lr_pairs_ranked.csv` and per-sample CCI/LR outputs in `out_dir`.
@@ -32,6 +32,11 @@ Final outputs of interest: `GROUND_TRUTH_lr_pairs_ranked.csv` and per-sample CCI
 - **Step 4** runs FindAllMarkers, queries EnrichR with top marker genes per community, and assigns cell-type labels. Outputs include marker tables, EnrichR CSVs, and `step4_annotation_scores.csv`.
 
 **Check**: Review labels and EnrichR scores for biological plausibility. **Cross-check labels with dataset identity** in config: species and (where applicable) tissue/region implied by disease or sample; labels should not contradict these. If they do, use `label_prefer_patterns` or `label_disqualify_patterns` and re-run step 4. Tune `annotation.*` (e.g. `primary_db`, `label_filter_preset`) if labels are poor.
+
+### Step 4b: Annotation adjudication (optional)
+
+- After step 4, the agent (or operator) may write **`step4_adjudication_labels.csv`** and **`step4_adjudication_report.json`** (see [adjudication_artifacts.md](adjudication_artifacts.md)) using a **3-tier** consensus policy.
+- **Step 5** reads the CSV if present and applies rows with `override_applied=true` so **steps 6–10** use the effective labels in `cell_type_metadata.csv`.
 
 ### Step 8: LR scoring
 
