@@ -11,7 +11,10 @@ suppressPackageStartupMessages({
   library(yaml)
 })
 
-cfg     <- yaml::read_yaml("/scratch/baderlab/sgupta/workflows_march/mar9_ai_drug_discovery/config_dipg.yml")
+args     <- commandArgs(trailingOnly = TRUE)
+cfg_path <- if (length(args) >= 1) args[1] else
+    "/scratch/baderlab/sgupta/workflows_march/mar9_ai_drug_discovery/config_dipg.yml"
+cfg     <- yaml::read_yaml(cfg_path)
 OUT_DIR <- cfg$out_dir
 SAMPLES <- cfg$samples
 
