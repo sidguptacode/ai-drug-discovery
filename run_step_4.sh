@@ -34,10 +34,9 @@ LOG_FILE=""
 STEP_SCRIPT="separated_steps/step_4.R"
 [[ -n "$RUN_ID" ]] && [[ -f "$REPO_ROOT/runs/$RUN_ID/steps/step_4.R" ]] && STEP_SCRIPT="$REPO_ROOT/runs/$RUN_ID/steps/step_4.R"
 
-echo "====== Step 4 — Annotation ======"
-# Disease prior: Open Targets + agent-defined tissues/cell types (YAML or JSON; see skill + build_step4_disease_prior.py)
-# Step 4b (adjudication) is agent-led after this step; validate with run_step4b_validate.sh when artifacts exist.
-"$PYTHON" "$REPO_ROOT/scripts/build_step4_disease_prior.py" --config "$CONFIG" || true
+echo "====== Step 4 — Annotation (intermediate) ======"
+# When config `disease` is set, OUT_DIR/step4_disease_marker_prior.json must already exist (written by the pipeline agent; see skill).
+# After step 4: reflecting agent writes step4_adjudication_labels.csv + step4_adjudication_report.json; then run_step4b_validate.sh; then step 5.
 
 if [[ -n "$LOG_FILE" ]]; then
   Rscript "$STEP_SCRIPT" 2>&1 | tee "$LOG_FILE"

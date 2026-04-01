@@ -7,7 +7,7 @@ Transform **raw spatial transcriptomics data** (Visium-style: per-sample H5 + ti
 ## Data flow
 
 1. **.data** — Per-sample folders with `*_filtered_feature_bc_matrix.h5`, `*_tissue_positions_list.csv`, `*_scalefactors_json.json`.
-2. **R pipeline (steps 1–5)** — QC → integration → clustering → annotation → optional **Step 4b** adjudication artifacts → export of `cell_type_metadata.csv` and integrated Seurat object. If `step4_adjudication_labels.csv` is present, **step 5** applies overrides to `cell_type_label` before export.
+2. **R pipeline (steps 1–5)** — QC → integration → clustering → **step 4** (intermediate markers + EnrichR + `step4_collated_candidates.json`) → **reflecting agent** writes **`step4_adjudication_labels.csv`** and **`step4_adjudication_report.json`** → **step 5** exports `cell_type_metadata.csv` and integrated Seurat object. Step 5 **requires** the two adjudication files and applies **`adjudication_label`** to every cluster.
 3. **Python pipeline (steps 6–10)** — Load samples with cell-type metadata → preprocess → LR scoring (stlearn) → CCI → aggregate and rank LR pairs.
 
 Final outputs of interest: `GROUND_TRUTH_lr_pairs_ranked.csv` and per-sample CCI/LR outputs in `out_dir`.
@@ -29,14 +29,15 @@ Final outputs of interest: `GROUND_TRUTH_lr_pairs_ranked.csv` and per-sample CCI
 
 ### Step 4: Annotation
 
-- **Step 4** runs FindAllMarkers, queries EnrichR with top marker genes per community, and assigns cell-type labels. Outputs include marker tables, EnrichR CSVs, and `step4_annotation_scores.csv`.
+- **Step 4** runs FindAllMarkers, queries EnrichR, writes per-DB CSVs and **`step4_collated_candidates.json`** (mechanical top-k collation). It does **not** assign final cell-type names; the Seurat object keeps `cell_type_label` equal to the community id until step 5.
 
-**Check**: Review labels and EnrichR scores for biological plausibility. **Cross-check labels with dataset identity** in config: species and (where applicable) tissue/region implied by disease or sample; labels should not contradict these. If they do, use `label_prefer_patterns` or `label_disqualify_patterns` and re-run step 4. Tune `annotation.*` (e.g. `primary_db`, `label_filter_preset`) if labels are poor.
+**Check**: Review enrichment and collation for plausibility. The **reflecting agent** must then write adjudication CSV + JSON before step 5. Tune `annotation.*` (e.g. `enrichr_dbs`, `label_disqualify_patterns`, disease prior) and re-run step 4 if evidence is poor.
 
-### Step 4b: Annotation adjudication (optional)
+### Step 4b: Collation + adjudication
 
-- After step 4, the agent (or operator) may write **`step4_adjudication_labels.csv`** and **`step4_adjudication_report.json`** (see [adjudication_artifacts.md](adjudication_artifacts.md)) using a **3-tier** consensus policy.
-- **Step 5** reads the CSV if present and applies rows with `override_applied=true` so **steps 6–10** use the effective labels in `cell_type_metadata.csv`.
+- **Collation** is produced automatically as **`step4_collated_candidates.json`**.
+- **Adjudication** is **mandatory** before step 5: **`step4_adjudication_labels.csv`** and **`step4_adjudication_report.json`** ([adjudication_artifacts.md](adjudication_artifacts.md)), **3-tier** policy.
+- **Step 5** fails without both files and sets **`cell_type_label`** from **`adjudication_label`** for all clusters.
 
 ### Step 8: LR scoring
 

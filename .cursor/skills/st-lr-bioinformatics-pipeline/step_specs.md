@@ -43,32 +43,24 @@ R steps (1–5) write large `.rds` files. The process may return or log "complet
 
 ---
 
-## Step 4 — Annotation
+## Step 4 — Annotation (intermediate artifacts)
 
-- **Purpose**: FindAllMarkers per community, EnrichR on top marker genes, label selection/filtering per cluster.
+- **Purpose**: FindAllMarkers per community; EnrichR on top marker genes per community; write per-DB tables and a **mechanical collation** JSON. **Does not** choose final cell-type labels in R (`cell_type_label` = community id placeholder).
 - **Libraries**: Seurat, ggplot2, dplyr, yaml (R); optional enrichR.
 - **Inputs**: `step3_seurat_clustered.rds`.
-- **Required outputs**: `step4_seurat_annotated.rds`, `step4_markers.csv`, `step4_filtered_markers.csv` (prior-filtered marker rows; audit), `step4_enrichr_marker_source.csv` (per cluster: prior-filtered vs unfiltered fallback for EnrichR), `step4_disease_marker_prior.json` (when `disease` is set; built by `scripts/build_step4_disease_prior.py`), `step4_enrichr_<community>_<db>.csv` (per community and EnrichR DB), `step4_annotation.pdf`, `step4_annotation_scores.csv`.
-- **Disease prior context**: Primary tissues and canonical cell types are **agent-provided** (`annotation.disease_prior_tissues` / `disease_prior_cell_types`, or `disease_prior_context_json`); see skill initialization. They are recorded in the prior JSON for audit; **genes** in that file filter markers in step 4.
+- **Required outputs**: `step4_seurat_annotated.rds`, `step4_markers.csv`, `step4_filtered_markers.csv` (prior-filtered marker rows; audit), `step4_enrichr_marker_source.csv`, `step4_disease_marker_prior.json` (when `disease` is set; **must be written by the pipeline agent before step 4** — see skill), `step4_enrichr_<community>_<db>.csv`, **`step4_collated_candidates.json`** (top markers + top-k EnrichR rows per DB per cluster), `step4_annotation.pdf`.
+- **Config**: `annotation.collate_enrichr_top_n`, `annotation.collate_marker_top_n` control collation depth; `annotation.label_disqualify_patterns` filters terms written into EnrichR CSVs only.
+- **Disease prior**: The agent writes `step4_disease_marker_prior.json` (disease-, context-, and cell-type–oriented gene lists; **genes** filter markers in step 4). Step 4 fails if `disease` is set and the file or `genes` is missing.
 
 ---
 
-## Step 4b — Annotation adjudication (optional, agent-driven)
+## Step 4b — Collation (in R) + adjudication (agent, mandatory before step 5)
 
-- **Purpose**: After step 4, optionally produce **override labels** and an auditable rationale by synthesizing evidence across EnrichR databases and dataset identity (`species`, `disease`, `dataset_name` from merged config). Does **not** replace `step_4.R`; canonical annotation outputs remain the baseline until step 5 applies overrides.
-- **Who runs it**: Agent (or human) using the 3-tier policy in [reflection_guidelines.md](reflection_guidelines.md) Checkpoint 2. Not a numbered `run_step_*.sh` script in `separated_steps/`.
-- **Inputs**:
-  - Merged config (dataset identity).
-  - `step4_markers.csv` (optional context for marker genes).
-  - Top **k** rows per community per DB from each `step4_enrichr_<community>_<db>.csv` (at minimum: `Term`, `Adjusted.P.value`, `Overlap`, `Genes`).
-- **Required outputs** (when adjudication is performed): see [adjudication_artifacts.md](adjudication_artifacts.md) for full schemas.
-  - **`step4_adjudication_labels.csv`** — one row per community; columns include `cluster`, `original_label`, `adjudication_label`, `override_applied`, `tier`, `confidence`.
-  - **`step4_adjudication_report.json`** — run metadata, per-cluster candidates, 3-tier trace, rationale, `needs_review`, and per-cluster **`override_applied`** (must match CSV; optional top-level `overridden_clusters` list).
-- **Success criteria**:
-  - Every cluster in step 4 outputs has a row in `step4_adjudication_labels.csv` **or** absent clusters are explicitly documented in the JSON as skipped.
-  - `tier` is one of `tier1_strong_consensus` | `tier2_partial_consensus` | `tier3_conflicted`.
-  - Rows with `override_applied=true` have a non-empty `adjudication_label`.
-- **Propagation**: **Step 5** reads `step4_adjudication_labels.csv` if present and applies overrides to `cell_type_label` before export (see Step 5 below).
+- **Mechanical collation**: Produced by step 4 as **`step4_collated_candidates.json`** (not a separate shell step).
+- **Reflecting agent (mandatory before step 5)**: Using merged config identity and collation / EnrichR evidence, apply the **3-tier** policy ([reflection_guidelines.md](reflection_guidelines.md) Checkpoint 2) and write:
+  - **`step4_adjudication_labels.csv`** — one row per community; **non-empty** `adjudication_label` and **`label_evidence`** (marker/EnrichR–grounded explanation per [adjudication_artifacts.md](adjudication_artifacts.md)).
+  - **`step4_adjudication_report.json`** — audit trail, candidates, tier rationale, `needs_review`.
+- **Success criteria**: Every cluster in the collation (or marker-source table) has a CSV row; tiers valid; JSON and CSV consistent.
 
 ---
 
@@ -76,7 +68,8 @@ R steps (1–5) write large `.rds` files. The process may return or log "complet
 
 - **Purpose**: Export cell-type metadata and integrated Seurat object for the Python pipeline.
 - **Libraries**: Seurat, yaml (R).
-- **Inputs**: `step4_seurat_annotated.rds`. **Optional**: `step4_adjudication_labels.csv` in the same `OUT_DIR` — if present, step 5 applies label overrides where `override_applied` is true, then exports.
+- **Inputs**: `step4_seurat_annotated.rds`. **Required**: `step4_adjudication_labels.csv` and `step4_adjudication_report.json` — if either is missing, step 5 stops with **“Step 4 final outputs not completed”**.
+- **Behaviour**: Sets `cell_type_label` from **`adjudication_label`** for every cluster listed in the CSV (full coverage required).
 - **Required outputs**: `cell_type_metadata.csv`, `seurat_integrated.rds`.
 
 ---

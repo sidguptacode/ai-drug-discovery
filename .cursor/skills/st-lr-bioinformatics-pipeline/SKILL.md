@@ -16,12 +16,15 @@ Before running or changing the pipeline, read the following documents (from this
 
 Items 1–3 describe the pipeline structure, step definitions, and how to reason about outputs. Item 4 defines adjudication CSV/JSON schemas and validation.
 
-**Disease prior (Step 4) — controller agent obligation:** `scripts/build_step4_disease_prior.py` does **not** infer primary tissues/organs or canonical cell types (no LLM for that). The **controller agent** must supply them before or when running step 4, using either:
+**Disease prior (Step 4) — controller agent obligation:** There is **no** automated Open Targets / GraphQL step. The **controller agent** must create **`OUT_DIR/step4_disease_marker_prior.json`** (under `outputs/<run_id>/` when using `PIPELINE_RUN_ID`) **before** `run_step_4.sh` whenever top-level **`disease`** is set in merged config. Step 4 **stops** if that file is missing or if **`genes`** is absent or empty.
 
-- **`annotation.disease_prior_tissues`** and **`annotation.disease_prior_cell_types`** in merged YAML (`runs/<run_id>/config_overrides.yml` for run-specific values), and/or
-- **`annotation.disease_prior_context_json`** pointing to a JSON file (path relative to `out_dir` or the config directory, or absolute). Shape: `tissues`, `cell_types`, optional `extra_genes` — see [disease_prior_context.example.json](disease_prior_context.example.json).
+When curating **`genes`** (HGNC symbols for the species in config), reason explicitly in three buckets — **most weight on (3)**:
 
-Optional **`annotation.disease_prior_extra_genes`** lists HGNC symbols merged after Open Targets associations. The written **`step4_disease_marker_prior.json`** echoes tissues/cell types for audit; **`genes`** still drive step 4 filtering.
+1. **Disease-linked** — markers and pathways directly associated with the configured disease.
+2. **Locus / anatomical context** — genes reflecting expected tissue or regional identity (e.g. organ- or niche-relevant markers) aligned with the dataset.
+3. **Canonical cell types** — established markers for cell types you expect in this kind of spatial transcriptomics analysis (broad coverage across expected lineages); this bucket should carry the **largest** share of the list.
+
+Use your knowledge and **web search** as needed to verify symbols and marker lists. Optional JSON fields (`disease_prior_tissues`, `disease_prior_cell_types`, `notes`, `source`, etc.) are for audit only; **marker filtering uses `genes` only.** Shape: [step4_disease_marker_prior.example.json](step4_disease_marker_prior.example.json). Override path: **`annotation.disease_marker_prior_json`** (relative to `out_dir` or absolute).
 
 ## Static files vs run-specific edits
 
@@ -80,9 +83,9 @@ This SSH’s to `sarya@comps0`, then runs `srun --partition gpunodes -c 2 --mem=
 - Step 1 — QC
 - Step 2 — Integration
 - Step 3 — Clustering
-- Step 4 — Annotation
-- Step 4b — Annotation adjudication (optional, agent-driven; see below)
-- Step 5 — Export
+- Step 4 — Annotation (intermediate artifacts only; no final cell-type labels in R)
+- Step 4b — Mechanical collation is in step 4 (`step4_collated_candidates.json`); **reflecting agent** writes final labels + report (mandatory before step 5)
+- Step 5 — Export (fails if adjudication files are missing)
 - Step 6 — Load samples (Python)
 - Step 7 — Preprocess
 - Step 8 — LR scoring
@@ -93,23 +96,23 @@ After each step, check outputs and decide whether to proceed or re-run (see Exec
 
 **Note**: `run_pipeline.sh` exists only to print this workflow; it exits with an error and must not be used to execute all steps in sequence.
 
-### Step 4b — Annotation adjudication (optional)
+### Step 4 → reflecting agent → step 5 (mandatory adjudication path)
 
-Canonical **step 4** (`separated_steps/step_4.R`) is unchanged. When **annotation adjudication** is enabled for a run, the agent performs a **post–step 4, pre–step 5** pass that:
+**Step 4** (`separated_steps/step_4.R`) writes **intermediate** outputs only: marker tables, `step4_enrichr_<community>_<db>.csv`, `step4_enrichr_marker_source.csv`, **`step4_collated_candidates.json`** (mechanical top-k collation per cluster and DB), and `step4_annotation.pdf`. It does **not** assign final cell-type names from EnrichR; `cell_type_label` in `step4_seurat_annotated.rds` is set to the **community id** until step 5.
 
-- Collates top EnrichR candidates per cluster from all `step4_enrichr_<community>_<db>.csv` files plus dataset identity from merged config (`species`, `disease`, `dataset_name`).
-- Applies **3-tier** label reasoning (see [step_specs.md](step_specs.md) Step 4b and [reflection_guidelines.md](reflection_guidelines.md) Checkpoint 2).
-- Writes auditable artifacts under **`outputs/<run_id>/`**:
-  - `step4_adjudication_labels.csv` — per-cluster overrides and metadata.
-  - `step4_adjudication_report.json` — evidence, tier, rationale, per-cluster `override_applied` (which clusters step 5 will relabel), `needs_review`, and audit fields.
+**Reflecting agent (controller), after step 4 — required before step 5**:
 
-**Propagation**: If `step4_adjudication_labels.csv` exists and rows have `override_applied=true`, **step 5** applies those labels to `cell_type_label` before writing `cell_type_metadata.csv` and `seurat_integrated.rds`, so steps 6–10 use the effective labels. See [adjudication_artifacts.md](adjudication_artifacts.md) for schemas and validation.
+1. Read merged config for **dataset identity** (`species`, `disease`, `dataset_name`) and open **`step4_collated_candidates.json`** plus raw `step4_enrichr_*.csv` as needed.
+2. Apply **3-tier** reasoning ([step_specs.md](step_specs.md) Step 4b, [reflection_guidelines.md](reflection_guidelines.md) Checkpoint 2).
+3. Write **both** artifacts under **`OUT_DIR`** (see [adjudication_artifacts.md](adjudication_artifacts.md)):
+   - **`step4_adjudication_labels.csv`** — final labels per cluster, required **`label_evidence`** column (plain text citing marker genes and/or EnrichR terms from step 4).
+   - **`step4_adjudication_report.json`** — per-cluster **`rationale`** and **`tier_rationale`** (grounded in markers/`key_marker_genes` and/or **`candidates`**), `needs_review`, audit fields.
 
-**When mandatory**: If the run enables adjudication (document in `runs/<run_id>/run_info.json`), the agent must complete Step 4b and Checkpoint 2 adjudication checks before running step 5.
+**Step 5** **requires** those two files. If either is missing, it stops with: **“Step 4 final outputs not completed”**. It applies **`adjudication_label`** to **all** clusters (not conditional on `override_applied`; that flag is audit-only).
 
-**Audit**: Record model id / prompt version in `step4_adjudication_report.json` when an LLM is used; keep inputs (top-k terms) reproducible from saved CSVs.
+**Audit**: Record model id / prompt version in `step4_adjudication_report.json` when an LLM is used; collation inputs are reproducible from `step4_collated_candidates.json` and EnrichR CSVs.
 
-**Validation helper (non-substitute for judgment)**: After writing adjudication files, run `scripts/validate_step4b_artifacts.py --config <merged_or_base_config>` (or `run_step4b_validate.sh` from repo root) to check CSV/JSON consistency and required fields. Optional: `--forbid-regex` for disallowed label patterns; `--require-approval` if you use a manual gate file `step4_adjudication_approved.flag` in `OUT_DIR`. The validator does not pick labels.
+**Validation helper**: Run `scripts/validate_step4b_artifacts.py --config <merged_or_base_config>` (or `run_step4b_validate.sh`). Optional: `--forbid-regex`, `--require-approval` + `step4_adjudication_approved.flag`. The validator does not pick labels.
 
 ### Run ID and logging
 
@@ -142,9 +145,9 @@ Do not run all steps in a row. For each step:
 
 1. **Start of run (once)**: Run `bash scripts/run_on_comps0.sh scripts/set_run_id.sh` to create `runs/<run_id>/` (config_overrides.yml, run_info.json, logs/). Do not edit `config.yml` for this run.
 2. Read the pipeline documentation (overview, step_specs, reflection_guidelines) as needed. **Before any reflection**, read **dataset identity** from the effective config (merged config when using `PIPELINE_RUN_ID`, else `config.yml`): `species`, `disease`, `dataset_name`.
-3. Run **one** step via comps0 with that run’s config: `PIPELINE_RUN_ID=<run_id> bash scripts/run_on_comps0.sh run_step_N.sh`. That step’s output is written to `runs/<run_id>/logs/step_N.log`.
+3. Run **one** step via comps0 with that run’s config: `PIPELINE_RUN_ID=<run_id> bash scripts/run_on_comps0.sh run_step_N.sh`. That step’s output is written to `runs/<run_id>/logs/step_N.log`. **Before step 4**, if merged config has non-empty `disease`, write `outputs/<run_id>/step4_disease_marker_prior.json` (see disease-prior obligation above); step 4 will not run without it.
 4. Inspect that step’s outputs in `outputs/<run_id>/` (when using `PIPELINE_RUN_ID`) or `out_dir` from config, and step log in `runs/<run_id>/logs/step_N.log`.
-5. **Reflection (mandatory)** at the relevant checkpoint (after 1–2, after 4, after 8–10): Open [reflection_guidelines.md](reflection_guidelines.md) and perform **every** check for that checkpoint. At Checkpoint 2, ensure annotation labels are **consistent with dataset identity** (species and, where applicable, tissue/region implied by disease or sample); if adjudication is used, complete adjudication review (tier, `needs_review`, overrides) before step 5. If any label contradicts dataset identity, remediate (config + re-run step 4, or revised adjudication artifacts) before proceeding.
+5. **Reflection (mandatory)** at the relevant checkpoint (after 1–2, after 4, after 8–10): Open [reflection_guidelines.md](reflection_guidelines.md) and perform **every** check for that checkpoint. At Checkpoint 2, after step 4, the agent must **produce adjudication CSV + JSON** (final labels) consistent with dataset identity; step 5 will not run without them. If labels contradict dataset identity, remediate (config + re-run step 4, or revised adjudication files) before step 5.
 6. If all checkpoint checks pass, proceed to the **next** step. If any check fails, apply **run-specific** changes in `runs/<run_id>/config_overrides.yml` (e.g. annotation filters), or shared code changes in `separated_steps/*`; do not edit `config.yml` for run-specific tuning. Re-run the relevant step(s) with `PIPELINE_RUN_ID=<run_id>` and do not advance until the re-run passes reflection. Update `runs/<run_id>/run_info.json` with `steps_completed`, `notes`, and optionally a short `reflection_outcome` per checkpoint (e.g. `passed`, `action`, `reason`).
 7. Repeat: run one step → check outputs → perform full reflection for that checkpoint → next step or re-run. Never batch-run the full pipeline without evaluation between steps.
 

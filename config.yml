@@ -56,33 +56,21 @@ annotation:
     - "CellMarker_2024"
     - "PanglaoDB_Augmented_2021"
     - "Human_Gene_Atlas"
+  # Hint for the adjudicating agent (step 4 does not auto-pick a label from this DB).
   primary_db: "CellMarker_2024"
 
-  # Disease marker prior (scripts/build_step4_disease_prior.py): cap genes; optional agent context.
-  # Tissues / cell types: set by controller agent (here or merged config), or disease_prior_context_json.
-  disease_prior_max_genes: 100
-  disease_prior_tissues:
-    - brain
-    - brainstem
-  disease_prior_cell_types:
-    - astrocyte
-    - oligodendrocyte
-    - microglia
-    - neuron
-  # Optional: path under out_dir or repo (see skill); JSON: { "tissues": [], "cell_types": [], "extra_genes": [] }
-  # disease_prior_context_json: "step4_disease_prior_context.json"
-  # Optional extra HGNC symbols merged after Open Targets associations:
-  # disease_prior_extra_genes: [ "GFAP", "OLIG2" ]
+  # Disease marker prior: when top-level `disease` is set, the pipeline agent must write
+  # OUT_DIR/step4_disease_marker_prior.json before step 4 (see ST-LR skill). Optional path override:
+  # disease_marker_prior_json: "custom_prior.json"
   # Minimum genes per cluster to query EnrichR (fallback uses unfiltered markers when prior omits a cluster).
   enrichr_min_genes: 5
 
-  # Label filter: preset or agent override (pipeline_set_step_config).
-  # Preset "blank": no disqualify, no prefer, no prefix — raw best EnrichR term.
-  label_filter_preset: "blank"
-  # Run-specific: set in runs/<run_id>/config_overrides.yml
+  # Mechanical collation into step4_collated_candidates.json (top rows per DB + key markers).
+  collate_enrichr_top_n: 5
+  collate_marker_top_n: 15
+
+  # EnrichR term filter applied when writing step4_enrichr_*.csv (not used to pick a final label in R).
   label_disqualify_patterns: []
-  label_prefer_patterns: []
-  # label_fallback_prefix: "optional prefix string"
 
 # ── Step 7: Preprocessing (Python) ───────────────────────────────────────────
 preprocessing:

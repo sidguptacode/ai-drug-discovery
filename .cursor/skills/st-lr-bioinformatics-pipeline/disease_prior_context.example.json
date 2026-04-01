@@ -1,5 +1,0 @@
-{
-  "tissues": ["brain", "brainstem"],
-  "cell_types": ["astrocyte", "oligodendrocyte", "microglia", "neuron"],
-  "extra_genes": ["GFAP", "OLIG2"]
-}

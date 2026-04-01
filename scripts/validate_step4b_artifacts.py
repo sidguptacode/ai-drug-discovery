@@ -2,8 +2,8 @@
 """
 Validate Step 4b adjudication artifacts (schema + CSV/JSON consistency).
 
-Does NOT choose labels — substantive adjudication is performed by the controller agent
-following .cursor/skills/st-lr-bioinformatics-pipeline/adjudication_artifacts.md.
+Step 5 requires these files. Does NOT choose labels — substantive adjudication is performed
+by the reflecting agent following adjudication_artifacts.md in the ST-LR skill.
 
 Usage:
   python3 scripts/validate_step4b_artifacts.py --out-dir outputs/<run_id>
@@ -37,6 +37,43 @@ TIER_OK = frozenset(
         "tier3_conflicted",
     }
 )
+
+# Grounded explanations: rationale must cite evidence; CSV label_evidence must not be trivial.
+MIN_RATIONALE_LEN = 40
+MIN_TIER_RATIONALE_LEN = 15
+MIN_LABEL_EVIDENCE_LEN = 25
+
+
+def load_expected_clusters(out_dir: str) -> list[str] | None:
+    """Cluster ids from step4_collated_candidates.json or step4_enrichr_marker_source.csv."""
+    collated = os.path.join(out_dir, "step4_collated_candidates.json")
+    if os.path.isfile(collated):
+        try:
+            with open(collated, encoding="utf-8") as f:
+                doc = json.load(f)
+        except json.JSONDecodeError:
+            return None
+        cl = doc.get("clusters")
+        if not isinstance(cl, list):
+            return None
+        out: list[str] = []
+        for obj in cl:
+            if isinstance(obj, dict):
+                c = str(obj.get("cluster", "")).strip()
+                if c:
+                    out.append(c)
+        return out or None
+    src = os.path.join(out_dir, "step4_enrichr_marker_source.csv")
+    if not os.path.isfile(src):
+        return None
+    try:
+        with open(src, encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            if reader.fieldnames is None or "cluster" not in reader.fieldnames:
+                return None
+            return sorted({str(r.get("cluster", "")).strip() for r in reader if str(r.get("cluster", "")).strip()})
+    except OSError:
+        return None
 
 
 def load_out_dir_from_config(path: str) -> str | None:
@@ -111,6 +148,7 @@ def main() -> int:
         "override_applied",
         "tier",
         "confidence",
+        "label_evidence",
     )
 
     with open(labels_path, encoding="utf-8", newline="") as f:
@@ -147,7 +185,7 @@ def main() -> int:
                     errs.append("JSON clusters[%d] missing cluster" % i)
                     continue
                 by_c[cl] = obj
-                for k in ("override_applied", "tier", "chosen_label"):
+                for k in ("override_applied", "tier", "chosen_label", "rationale", "tier_rationale"):
                     if k not in obj:
                         errs.append("JSON cluster %s missing %s" % (cl, k))
                 if obj.get("tier") not in TIER_OK:
@@ -164,6 +202,12 @@ def main() -> int:
             continue
         csv_by[cl] = r
 
+    expected = load_expected_clusters(out_dir)
+    if expected is not None:
+        for cl in expected:
+            if cl not in csv_by:
+                errs.append("cluster %s from step 4 collation/marker source missing in CSV" % cl)
+
     if isinstance(rep, dict) and isinstance(rep.get("clusters"), list):
         for cl, r in csv_by.items():
             jo = by_c.get(cl)
@@ -178,8 +222,6 @@ def main() -> int:
             ch = str(jo.get("chosen_label") or "").strip()
             if adj != ch:
                 errs.append("cluster %s adjudication_label != chosen_label" % cl)
-            if oa_csv and not adj:
-                errs.append("cluster %s override_applied true but empty adjudication_label" % cl)
             tier = (r.get("tier") or "").strip()
             if tier not in TIER_OK:
                 errs.append("cluster %s invalid tier in CSV: %r" % (cl, tier))
@@ -187,6 +229,47 @@ def main() -> int:
         for cl, jo in by_c.items():
             if cl not in csv_by:
                 errs.append("cluster %s in JSON but not in CSV" % cl)
+
+    for cl, r in csv_by.items():
+        if not (r.get("adjudication_label") or "").strip():
+            errs.append("cluster %s empty adjudication_label (required for step 5)" % cl)
+        lev = (r.get("label_evidence") or "").strip()
+        if len(lev) < MIN_LABEL_EVIDENCE_LEN:
+            errs.append(
+                "cluster %s label_evidence too short or empty (need >=%d chars citing markers/terms)"
+                % (cl, MIN_LABEL_EVIDENCE_LEN)
+            )
+
+    if isinstance(rep, dict) and isinstance(rep.get("clusters"), list):
+        for cl, jo in by_c.items():
+            rat = str(jo.get("rationale") or "").strip()
+            if len(rat) < MIN_RATIONALE_LEN:
+                errs.append(
+                    "cluster %s rationale too short or empty (need >=%d chars; cite markers/EnrichR)"
+                    % (cl, MIN_RATIONALE_LEN)
+                )
+            tr = str(jo.get("tier_rationale") or "").strip()
+            if len(tr) < MIN_TIER_RATIONALE_LEN:
+                errs.append(
+                    "cluster %s tier_rationale too short or empty (need >=%d chars)" % (cl, MIN_TIER_RATIONALE_LEN)
+                )
+            kmg = jo.get("key_marker_genes")
+            cand = jo.get("candidates")
+            n_kmg = len(kmg) if isinstance(kmg, list) else 0
+            n_cand = len(cand) if isinstance(cand, list) else 0
+            if n_kmg == 0 and n_cand == 0:
+                errs.append(
+                    "cluster %s needs key_marker_genes (>=1 gene) and/or candidates (>=1 enrichr row)"
+                    % cl
+                )
+            elif n_kmg > 0:
+                ok_gene = False
+                for x in kmg:
+                    if isinstance(x, str) and x.strip():
+                        ok_gene = True
+                        break
+                if not ok_gene:
+                    errs.append("cluster %s key_marker_genes must list at least one non-empty gene symbol" % cl)
 
     compiled: list[re.Pattern[str]] = []
     for pat in args.forbid_regex:

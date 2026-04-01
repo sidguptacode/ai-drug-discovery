@@ -2,16 +2,18 @@
 # =============================================================================
 # step_4.R — Marker genes + EnrichR cell-type annotation
 # Reads:  OUT_DIR/step3_seurat_clustered.rds
-# Writes: OUT_DIR/step4_seurat_annotated.rds
+# Writes: OUT_DIR/step4_seurat_annotated.rds  (cell_type_label = community id; final labels at step 5)
 #         OUT_DIR/step4_markers.csv          (full FindAllMarkers; never prior-filtered)
 #         OUT_DIR/step4_filtered_markers.csv (prior-filtered rows only; audit; EnrichR may use
 #           unfiltered markers per cluster when the prior matches no genes in that cluster)
 #         OUT_DIR/step4_enrichr_marker_source.csv — per cluster: prior_filtered vs unfiltered_fallback
-#         OUT_DIR/step4_disease_marker_prior.json — built before this step by
-#           scripts/build_step4_disease_prior.py (Open Targets associations); optional hand-curate.
+#         OUT_DIR/step4_disease_marker_prior.json — when cfg$disease is set, must exist before this
+#           step (HGNC symbols in $genes); written entirely by the pipeline agent (see ST-LR skill).
 #         OUT_DIR/step4_enrichr_<community>_<db>.csv
+#         OUT_DIR/step4_collated_candidates.json — mechanical top-k collation per cluster (all DBs)
 #         OUT_DIR/step4_annotation.pdf
-#         OUT_DIR/step4_annotation_scores.csv
+# Final annotation scores + audit report are NOT written here; the reflecting agent writes
+# step4_adjudication_labels.csv and step4_adjudication_report.json before step_5.R.
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -45,7 +47,7 @@ OUT_DIR <- cfg$out_dir
 ANNOT   <- cfg$annotation
 
 set.seed(42)
-cat(sprintf("====== step_4.R | Annotation | Seurat v%s ======\n", packageVersion("Seurat")))
+cat(sprintf("====== step_4.R | Intermediate annotation | Seurat v%s ======\n", packageVersion("Seurat")))
 cat(sprintf("  FindAllMarkers: min_pct=%g | logfc>=%g | EnrichR top %d genes\n",
             ANNOT$min_pct, ANNOT$logfc_threshold, ANNOT$n_marker_genes))
 
@@ -118,7 +120,24 @@ if (!is.null(ANNOT$disease_marker_prior_json)) {
     prior_path <- if (startsWith(p, "/")) p else file.path(OUT_DIR, p)
 }
 
+disease_str <- ""
+if (!is.null(cfg$disease)) disease_str <- trimws(as.character(cfg$disease)[1])
+if (nzchar(disease_str)) {
+  if (!file.exists(prior_path)) {
+    stop("Missing disease marker prior: ", prior_path,
+         "\n  Config `disease` is set; write step4_disease_marker_prior.json under OUT_DIR before step 4 ",
+         "(ST-LR skill: disease-linked markers, locus/tissue context markers, canonical cell-type markers — ",
+         "emphasize cell types). Web search is allowed to confirm symbols.",
+         call. = FALSE)
+  }
+}
+
 prior_genes <- load_step4_prior_genes(prior_path)
+if (nzchar(disease_str) && length(prior_genes) == 0) {
+  stop("Disease marker prior has no usable `genes` array: ", prior_path,
+       "\n  Provide a non-empty JSON list of HGNC gene symbols under `genes`.",
+       call. = FALSE)
+}
 if (length(prior_genes) > 0) {
   gene_u <- toupper(as.character(markers_unfiltered$gene))
   sig_markers <- markers_unfiltered[gene_u %in% prior_genes, , drop = FALSE]
@@ -156,44 +175,17 @@ config_char_vec <- function(x) {
   as.character(unlist(x))
 }
 
-preset <- tolower(trimws(if (is.null(ANNOT$label_filter_preset) || !nzchar(trimws(ANNOT$label_filter_preset))) "blank" else ANNOT$label_filter_preset))
 disqualify_list <- config_char_vec(ANNOT$label_disqualify_patterns)
 if (is.null(disqualify_list)) disqualify_list <- character(0)
-prefer_list <- config_char_vec(ANNOT$label_prefer_patterns)
-if (is.null(prefer_list)) prefer_list <- character(0)
-fallback_prefix <- if (!is.null(ANNOT$label_fallback_prefix)) trimws(as.character(ANNOT$label_fallback_prefix)[1]) else ""
-
 disqualify_regex <- if (length(disqualify_list) > 0) paste(disqualify_list, collapse = "|") else NULL
-cat(sprintf("  Label filter: preset=%s | disqualify=%d patterns | prefer=%d patterns\n",
-            preset, length(disqualify_list), length(prefer_list)))
+cat(sprintf("  EnrichR term filter: disqualify=%d regex pattern(s) (applied to saved DB tables)\n",
+            length(disqualify_list)))
 
-# ── Preferred-label picker ────────────────────────────────────────────────────
-# prefer_patterns = character vector of regex; fallback_prefix = string (can be "")
-# If no prefer patterns: return best row by p-value with no prefix.
-# Else: prefer terms matching any pattern; if none match, use best overall and prefix.
-# Returns list(term = character, adj_pvalue = numeric)
-pick_preferred_label <- function(db_df, prefer_patterns, fallback_prefix) {
-  if (nrow(db_df) == 0) return(list(term = NA_character_, adj_pvalue = NA_real_))
-  row <- db_df %>% arrange(Adjusted.P.value) %>% slice_head(n = 1)
-  best_term <- row %>% pull(Term)
-  best_pval <- row %>% pull(Adjusted.P.value)
-  if (length(prefer_patterns) == 0) {
-    return(list(term = best_term, adj_pvalue = best_pval))
-  }
-  prefer_regex <- paste(prefer_patterns, collapse = "|")
-  preferred <- db_df[grepl(prefer_regex, db_df$Term, ignore.case = TRUE), ]
-  if (nrow(preferred) > 0) {
-    row <- preferred %>% arrange(Adjusted.P.value) %>% slice_head(n = 1)
-    return(list(term = row %>% pull(Term), adj_pvalue = row %>% pull(Adjusted.P.value)))
-  }
-  out_term <- if (nzchar(fallback_prefix)) paste0(fallback_prefix, best_term) else best_term
-  return(list(term = out_term, adj_pvalue = best_pval))
-}
+collate_top_n <- if (!is.null(ANNOT$collate_enrichr_top_n)) as.integer(ANNOT$collate_enrichr_top_n)[1] else 5L
+if (is.na(collate_top_n) || collate_top_n < 1L) collate_top_n <- 5L
 
-# ── EnrichR annotation ────────────────────────────────────────────────────────
+# ── EnrichR (writes per-DB CSVs only; no automatic cell-type assignment) ───────
 all_communities  <- sort(unique(seurat_int$community))
-cell_type_labels <- setNames(all_communities, all_communities)
-annotation_adj_pvalue <- setNames(rep(NA_real_, length(all_communities)), all_communities)
 
 if (has_enrichr) {
   cat(sprintf("  Querying EnrichR: %s\n", paste(ANNOT$enrichr_dbs, collapse=", ")))
@@ -226,9 +218,6 @@ if (has_enrichr) {
         if (!is.null(disqualify_regex))
           res <- lapply(res, function(df) df[!grepl(disqualify_regex, df$Term), ])
         comm_key <- as.character(comm)
-        pick     <- pick_preferred_label(res[[ANNOT$primary_db]], prefer_list, fallback_prefix)
-        cell_type_labels[comm_key] <- if (!is.na(pick$term)) pick$term else comm_key
-        if (!is.na(pick$adj_pvalue)) annotation_adj_pvalue[comm_key] <- pick$adj_pvalue
         for (db in names(res))
           write.csv(res[[db]],
                     file.path(OUT_DIR, sprintf("step4_enrichr_%s_%s.csv",
@@ -243,46 +232,14 @@ if (has_enrichr) {
                 row.names = FALSE)
       cat(sprintf("  Saved: step4_enrichr_marker_source.csv\n"))
     }
-    cat("\n  Labels (review step4_enrichr_*.csv before proceeding):\n")
-    for (comm in names(cell_type_labels))
-      cat(sprintf("    %-6s -> %s\n", comm, cell_type_labels[comm]))
+    cat("\n  Review step4_enrichr_*.csv and step4_collated_candidates.json; then agent writes adjudication artifacts.\n")
   }, error = function(e)
-    cat(sprintf("  [WARN] EnrichR failed: %s - using community IDs.\n", e$message)))
+    cat(sprintf("  [WARN] EnrichR failed: %s - EnrichR CSVs may be missing.\n", e$message)))
 } else {
-  cat("  enrichR not installed - labels default to community IDs.\n")
+  cat("  enrichR not installed - no EnrichR CSVs; collated JSON will still list markers only.\n")
 }
 
-# ── Per-cluster and aggregate annotation quality (EnrichR adjusted P-value) ───
-cat("\n  Per-cluster annotation P-value (EnrichR adjusted P-value for chosen label):\n")
-for (comm in names(annotation_adj_pvalue)) {
-  pv <- annotation_adj_pvalue[comm]
-  pv_str <- if (is.na(pv)) "NA" else sprintf("%.4g", pv)
-  cat(sprintf("    cluster %-6s  adjusted_pvalue = %s\n", comm, pv_str))
-}
-pv_valid <- annotation_adj_pvalue[!is.na(annotation_adj_pvalue)]
-if (length(pv_valid) > 0) {
-  agg_mean   <- mean(pv_valid)
-  agg_median <- median(pv_valid)
-  agg_frac_sig <- mean(pv_valid < 0.05)
-  cat(sprintf("\n  Aggregate annotation quality:\n"))
-  cat(sprintf("    mean(adjusted_pvalue)     = %.4g  (lower = better)\n", agg_mean))
-  cat(sprintf("    median(adjusted_pvalue)   = %.4g  (lower = better)\n", agg_median))
-  cat(sprintf("    fraction with p < 0.05    = %.2f  (higher = better)\n", agg_frac_sig))
-} else {
-  agg_mean <- agg_median <- NA_real_
-  agg_frac_sig <- NA_real_
-  cat("\n  No EnrichR p-values available - aggregate scores omitted.\n")
-}
-
-annotation_scores_df <- data.frame(
-  cluster = c(names(annotation_adj_pvalue), "aggregate_mean", "aggregate_median", "fraction_p_under_0.05"),
-  label   = c(unname(cell_type_labels[names(annotation_adj_pvalue)]), "", "", ""),
-  adjusted_pvalue = c(unname(annotation_adj_pvalue), if (length(pv_valid) > 0) c(agg_mean, agg_median, agg_frac_sig) else c(NA, NA, NA))
-)
-write.csv(annotation_scores_df, file.path(OUT_DIR, "step4_annotation_scores.csv"), row.names = FALSE)
-cat(sprintf("\n  Saved: step4_annotation_scores.csv\n"))
-
-# ── C1 collation JSON (markers + top EnrichR labels) ─────────────────────────
+# ── Mechanical collation (step 4b aggregation): markers + top-k EnrichR rows ─
 parse_overlap_num <- function(x) {
   if (is.null(x) || is.na(x) || !nzchar(as.character(x))) return(NA_real_)
   parts <- strsplit(as.character(x), "/", fixed = TRUE)[[1]]
@@ -346,11 +303,17 @@ build_cluster_collation <- function(cluster_id = "C1",
     top_labels[[db]] <- labels_this_db
   }
 
-  recurrent_df <- data.frame(
-    gene = names(sort(table(evidence_genes_all), decreasing = TRUE)),
-    count_across_top_labels = as.integer(sort(table(evidence_genes_all), decreasing = TRUE)),
-    stringsAsFactors = FALSE
-  )
+  # When evidence_genes_all is empty, names(table(...)) is NULL and data.frame drops `gene` — keep columns stable for dplyr.
+  tb <- sort(table(evidence_genes_all), decreasing = TRUE)
+  recurrent_df <- if (length(tb) == 0L) {
+    data.frame(gene = character(0), count_across_top_labels = integer(0), stringsAsFactors = FALSE)
+  } else {
+    data.frame(
+      gene = names(tb),
+      count_across_top_labels = as.integer(tb),
+      stringsAsFactors = FALSE
+    )
+  }
   recurrent_df <- recurrent_df %>% filter(count_across_top_labels >= 2)
   recurrent_and_top_markers <- recurrent_df %>% filter(gene %in% top_marker_genes)
 
@@ -360,17 +323,34 @@ build_cluster_collation <- function(cluster_id = "C1",
     top_candidate_labels_by_database = top_labels,
     markers_mainly_driving_label_assignment = list(
       recurrent_across_top_labels = recurrent_df,
-      recurrent_and_also_top_C1_markers = recurrent_and_top_markers
+      recurrent_and_also_top_markers = recurrent_and_top_markers
     )
   )
 }
 
-c1_collation <- build_cluster_collation(cluster_id = "C1", marker_top_n = 15, label_top_n = 2)
-c1_collation_path <- file.path(OUT_DIR, "step4_c1_collation.json")
-jsonlite::write_json(c1_collation, c1_collation_path, pretty = TRUE, auto_unbox = TRUE, na = "null")
-cat(sprintf("  Saved: %s\n", basename(c1_collation_path)))
+marker_collation_n <- if (!is.null(ANNOT$collate_marker_top_n)) as.integer(ANNOT$collate_marker_top_n)[1] else 15L
+if (is.na(marker_collation_n) || marker_collation_n < 1L) marker_collation_n <- 15L
 
-seurat_int$cell_type_label <- unname(cell_type_labels[seurat_int$community])
+collated_clusters <- lapply(all_communities, function(cid) {
+  build_cluster_collation(
+    cluster_id = as.character(cid),
+    marker_top_n = marker_collation_n,
+    label_top_n = collate_top_n
+  )
+})
+collated_doc <- list(
+  schema_version = "1.0",
+  description = paste0(
+    "Mechanical aggregation only: top marker genes and top-", collate_top_n,
+    " EnrichR rows per database per cluster. No final cell-type assignment."
+  ),
+  clusters = collated_clusters
+)
+collated_path <- file.path(OUT_DIR, "step4_collated_candidates.json")
+jsonlite::write_json(collated_doc, collated_path, pretty = TRUE, auto_unbox = TRUE, na = "null")
+cat(sprintf("  Saved: %s\n", basename(collated_path)))
+
+seurat_int$cell_type_label <- as.character(seurat_int$community)
 
 top5 <- bind_rows(lapply(sort(unique(as.character(seurat_int$community))), function(cx) {
   markers_for_cluster(cx, sig_markers, markers_unfiltered) %>%
@@ -392,9 +372,9 @@ tryCatch(
   error = function(e) message("  [WARN] DotPlot: ", e$message)
 )
 tryCatch(
-  print(DimPlot(seurat_int, reduction = "umap", group.by = "cell_type_label",
+  print(DimPlot(seurat_int, reduction = "umap", group.by = "community",
                 label = TRUE, label.size = 3, pt.size = 0.3, repel = TRUE) +
-          ggtitle("UMAP - cell type labels") + theme_bw() +
+          ggtitle("UMAP - communities (final labels after adjudication + step 5)") + theme_bw() +
           theme(legend.text = element_text(size = 7))),
   error = function(e) message("  [WARN] DimPlot: ", e$message)
 )
@@ -404,5 +384,5 @@ cat("  Saved: step4_annotation.pdf\n")
 saveRDS(seurat_int, file.path(OUT_DIR, "step4_seurat_annotated.rds"))
 cat("  Saved: step4_seurat_annotated.rds\n")
 
-cat(sprintf("\n====== step_4.R COMPLETE | %d communities annotated ======\n",
+cat(sprintf("\n====== step_4.R COMPLETE | %d communities | intermediate annotation artifacts ======\n",
             length(unique(seurat_int$community))))

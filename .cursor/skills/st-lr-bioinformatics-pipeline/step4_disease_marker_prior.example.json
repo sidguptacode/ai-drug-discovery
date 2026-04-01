@@ -1,0 +1,16 @@
+{
+  "schema_version": 4,
+  "disease_query": "Example: diffuse midline glioma",
+  "species": "Homo sapiens",
+  "disease_prior_tissues": ["brain", "brainstem"],
+  "disease_prior_cell_types": ["astrocyte", "oligodendrocyte", "microglia", "neuron", "endothelial"],
+  "source": "agent_curated",
+  "notes": "List how genes were chosen: (1) disease-linked, (2) locus/anatomical context, (3) canonical cell-type markers — emphasize (3).",
+  "genes": [
+    "GFAP",
+    "OLIG2",
+    "PTPRC",
+    "RBFOX3",
+    "PECAM1"
+  ]
+}
