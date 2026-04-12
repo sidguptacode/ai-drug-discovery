@@ -6,7 +6,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
 # Source conda so merge + prior script use env Python (PyYAML, etc.); set CONDA_SH on cluster if needed
-for f in "${CONDA_SH:-}" "/w/20251/sarya/miniconda3/etc/profile.d/conda.sh" "$HOME/miniconda3/etc/profile.d/conda.sh" "$HOME/anaconda3/etc/profile.d/conda.sh" "/opt/conda/etc/profile.d/conda.sh"; do
+for f in "${CONDA_SH:-}" "/w/20252/cchin/miniconda3/etc/profile.d/conda.sh" "$HOME/miniconda3/etc/profile.d/conda.sh" "$HOME/anaconda3/etc/profile.d/conda.sh" "/opt/conda/etc/profile.d/conda.sh"; do
   [[ -n "$f" && -r "$f" ]] && source "$f" && break
 done
 if command -v conda &>/dev/null; then

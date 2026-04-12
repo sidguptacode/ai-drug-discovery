@@ -6,7 +6,7 @@
 
 set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_ON_COMPS0="${REPO_ON_COMPS0:-/w/20251/sarya/ai-drug-discovery}"
+REPO_ON_COMPS0="${REPO_ON_COMPS0:-/w/20252/cchin/aafd/ai-drug-discovery}"
 SCRIPT="$1"
 shift || true
 if [[ -z "$SCRIPT" ]]; then
@@ -24,4 +24,4 @@ fi
 ENV_EXPORTS=""
 [[ -n "${PIPELINE_RUN_ID:-}" ]] && ENV_EXPORTS="export PIPELINE_RUN_ID='$PIPELINE_RUN_ID'; "
 [[ -n "${PIPELINE_STEP_CONFIG:-}" ]] && ENV_EXPORTS="${ENV_EXPORTS}export PIPELINE_STEP_CONFIG='$PIPELINE_STEP_CONFIG'; "
-ssh sarya@comps0 "${ENV_EXPORTS}cd $REPO_ON_COMPS0 && srun --partition gpunodes -c 2 --mem=64G -t 60 bash $SCRIPT_REL"
+ssh -i ~/.ssh/comps0_key cchin@comps0 "${ENV_EXPORTS}cd $REPO_ON_COMPS0 && srun --partition cpunodes -c 2 --mem=64G -t 60 bash $SCRIPT_REL"

@@ -9,9 +9,9 @@ disease:      "DIPG"
 species:      "human"   # used by `stLearn LR database loader
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-data_dir: "/w/20251/sarya/ai-drug-discovery/.data"
+data_dir: "/w/20252/cchin/aafd/ai-drug-discovery/data"
 # Base out_dir (used when not running with PIPELINE_RUN_ID). When running with PIPELINE_RUN_ID, merged config sets out_dir to outputs/<run_id>/.
-out_dir:  "/w/20251/sarya/ai-drug-discovery/outputs"
+out_dir:  "/w/20252/cchin/aafd/ai-drug-discovery/outputs"
 
 # ── Run (logging) ──────────────────────────────────────────────────────────────
 # Base config is static. run_id and run-specific overrides live in runs/<run_id>/config_overrides.yml.
@@ -80,7 +80,7 @@ preprocessing:
 
 # ── Step 8: LR scoring ────────────────────────────────────────────────────────
 lr_scoring:
-  databases:    ["cellphonedb"]   # LR databases to load via stLearn
+  databases:    ["connectomeDB2020_lit"]   # LR databases to load via stLearn
   n_pairs:      1000              # permutation pairs for significance testing
   min_spots:    3                 # minimum spots a LR pair must be expressed in
   n_neighbors:  6                 # spatial neighbourhood size

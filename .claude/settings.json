@@ -1,0 +1,9 @@
+{
+  "skills": [
+    {
+      "name": "st-lr-bioinformatics-pipeline",
+      "description": "Run and iteratively improve the spatial transcriptomics ligand-receptor pipeline (separated_steps). Use when running the ST-LR pipeline, debugging steps, or interpreting QC, annotation, or LR pair outputs.",
+      "path": ".claude/skills/st-lr-bioinformatics-pipeline/skill.md"
+    }
+  ]
+}

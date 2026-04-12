@@ -75,7 +75,7 @@ def extract_lr_matrices(adata, lrs):
 
 
 for samp in SAMPLES:
-    in_path = os.path.join(OUT_DIR, f"step7_{samp}.h5ad")
+    in_path = os.path.join(OUT_DIR, f"step6_{samp}.h5ad")
     if not os.path.exists(in_path):
         print(f"ERROR: {in_path} not found. Run step_7.py first.", file=sys.stderr)
         sys.exit(1)

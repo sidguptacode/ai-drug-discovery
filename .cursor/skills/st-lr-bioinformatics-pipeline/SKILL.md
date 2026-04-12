@@ -61,7 +61,7 @@ Do **not** change `config.yml` or `separated_steps/*` to tune for one run. Put r
 
 **Do not run pipeline scripts locally.** Whenever the agent runs any of the internal scripts (`scripts/set_run_id.sh`, `run_step_1.sh` … `run_step_10.sh`), it must:
 
-1. **SSH to comps0**: `ssh sarya@comps0`
+1. **SSH to comps0**: `ssh cchin@comps0`
 2. **Run the script via srun** with: `--partition gpunodes -c 2 --mem=64G -t 60 --pty`
 
 Use the helper script from the **local** repo (so the agent runs this locally):
@@ -76,7 +76,7 @@ Examples:
 - `bash scripts/run_on_comps0.sh run_step_1.sh`
 - For a **specific run** (use merged config and that run’s logs): `PIPELINE_RUN_ID=<run_id> bash scripts/run_on_comps0.sh run_step_4.sh`
 
-This SSH’s to `sarya@comps0`, then runs `srun --partition gpunodes -c 2 --mem=64G -t 60 --pty bash <script>` in the project directory on comps0. `PIPELINE_RUN_ID` and `PIPELINE_STEP_CONFIG` are forwarded to the remote when set. If the repo path on comps0 differs, set `REPO_ON_COMPS0` before calling (e.g. `REPO_ON_COMPS0=/other/path bash scripts/run_on_comps0.sh run_step_1.sh`).
+This SSH’s to `cchin@comps0`, then runs `srun --partition gpunodes -c 2 --mem=64G -t 60 --pty bash <script>` in the project directory on comps0. `PIPELINE_RUN_ID` and `PIPELINE_STEP_CONFIG` are forwarded to the remote when set. If the repo path on comps0 differs, set `REPO_ON_COMPS0` before calling (e.g. `REPO_ON_COMPS0=/other/path bash scripts/run_on_comps0.sh run_step_1.sh`).
 
 **Run one step at a time** (via the helper above). Do not run all steps in a row. Steps in order:
 

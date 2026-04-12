@@ -22,7 +22,7 @@ LOG_FILE=""
 [[ -n "$RUN_ID" ]] && LOG_DIR="$REPO_ROOT/runs/$RUN_ID/logs" && mkdir -p "$LOG_DIR" && LOG_FILE="$LOG_DIR/step_6.log"
 
 # Source conda so it is available in non-interactive/srun environments (set CONDA_SH if needed on cluster)
-for f in "${CONDA_SH:-}" "/w/20251/sarya/miniconda3/etc/profile.d/conda.sh" "$HOME/miniconda3/etc/profile.d/conda.sh" "$HOME/anaconda3/etc/profile.d/conda.sh" "/opt/conda/etc/profile.d/conda.sh"; do
+for f in "${CONDA_SH:-}" "/w/20252/cchin/miniconda3/etc/profile.d/conda.sh" "$HOME/miniconda3/etc/profile.d/conda.sh" "$HOME/anaconda3/etc/profile.d/conda.sh" "/opt/conda/etc/profile.d/conda.sh"; do
   [[ -n "$f" && -r "$f" ]] && source "$f" && break
 done
 if command -v conda &>/dev/null; then
